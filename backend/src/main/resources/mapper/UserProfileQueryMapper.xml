@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.oufeng.ecommerceuserprofilev2.infrastructure.mapper.UserProfileQueryMapper">
+
+    <select id="queryOverview" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.ProfileOverviewResponse">
+        SELECT
+            (SELECT COUNT(*) FROM ecommerce_user) AS totalUsers,
+            (SELECT COUNT(*) FROM user_profile_summary) AS profiledUsers,
+            (SELECT COUNT(*) FROM user_segment WHERE segment_code = 'HIGH_VALUE') AS highValueUsers,
+            (SELECT COALESCE(SUM(total_payment_amount), 0) FROM user_profile_summary) AS totalPaymentAmount
+    </select>
+
+    <select id="querySegmentDistribution" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.SegmentDistributionResponse">
+        SELECT segment_code AS segmentCode, segment_name AS segmentName, COUNT(*) AS userCount
+        FROM user_segment GROUP BY segment_code, segment_name ORDER BY userCount DESC
+    </select>
+
+    <select id="queryTagDistribution" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.TagDistributionResponse">
+        SELECT t.tag_code AS tagCode, ut.tag_value AS tagValue, COUNT(DISTINCT ut.user_id) AS userCount,
+               COUNT(DISTINCT ut.user_id) / totals.total_count AS userRatio
+        FROM user_profile_tag ut
+        JOIN profile_tag_definition t ON t.id = ut.tag_id
+        JOIN (SELECT tag_id, COUNT(DISTINCT user_id) AS total_count FROM user_profile_tag GROUP BY tag_id) totals ON totals.tag_id = ut.tag_id
+        WHERE (#{tagCode} IS NULL OR t.tag_code = #{tagCode})
+        GROUP BY t.tag_code, ut.tag_value, totals.total_count ORDER BY t.tag_code, userCount DESC
+    </select>
+
+    <sql id="profileFilter">
+        FROM ecommerce_user u
+        LEFT JOIN user_profile_summary p ON p.user_id = u.id
+        LEFT JOIN user_segment s ON s.user_id = u.id
+        <where>
+            <if test="keyword != null and keyword != ''">u.user_code LIKE CONCAT('%', #{keyword}, '%')</if>
+            <if test="segmentCode != null and segmentCode != ''">AND s.segment_code = #{segmentCode}</if>
+        </where>
+    </sql>
+
+    <select id="queryProfiles" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.UserProfileListItemResponse">
+        SELECT u.id AS userId, u.user_code AS userCode, u.gender, u.age, u.province, u.city,
+               COALESCE(p.total_order_count, 0) AS totalOrderCount, COALESCE(p.total_payment_amount, 0) AS totalPaymentAmount,
+               s.segment_code AS segmentCode, s.segment_name AS segmentName, s.segment_score AS segmentScore
+        <include refid="profileFilter"/>
+        ORDER BY COALESCE(p.total_payment_amount, 0) DESC, u.id ASC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countProfiles" resultType="long">
+        SELECT COUNT(*) <include refid="profileFilter"/>
+    </select>
+
+    <select id="queryUserProfile" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.UserProfileResponse">
+        SELECT u.id AS userId, u.user_code AS userCode, u.gender, u.age, u.province, u.city,
+               COALESCE(p.total_order_count, 0) AS totalOrderCount, COALESCE(p.total_payment_amount, 0) AS totalPaymentAmount,
+               COALESCE(p.average_order_amount, 0) AS averageOrderAmount, COALESCE(p.browse_count_30d, 0) AS browseCount30d,
+               COALESCE(p.login_count_30d, 0) AS loginCount30d, p.last_active_at AS lastActiveAt,
+               s.segment_code AS segmentCode, s.segment_name AS segmentName, s.segment_score AS segmentScore
+        FROM ecommerce_user u
+        LEFT JOIN user_profile_summary p ON p.user_id = u.id
+        LEFT JOIN user_segment s ON s.user_id = u.id WHERE u.id = #{userId}
+    </select>
+
+    <!-- ═══ 人群圈选 ═══ -->
+    <sql id="audienceBase">
+        FROM ecommerce_user u
+        LEFT JOIN user_profile_summary ps ON ps.user_id = u.id
+        LEFT JOIN user_segment sg ON sg.user_id = u.id
+    </sql>
+
+    <sql id="audienceColumns">
+        u.id AS userId, u.user_code AS userCode, u.gender, u.age, u.province, u.city,
+        COALESCE(ps.total_order_count, 0) AS totalOrderCount, COALESCE(ps.total_payment_amount, 0) AS totalPaymentAmount,
+        sg.segment_code AS segmentCode, sg.segment_name AS segmentName, sg.segment_score AS segmentScore
+    </sql>
+
+    <sql id="audienceWhere">
+        <trim prefix="WHERE" prefixOverrides="AND |OR ">
+            <foreach collection="conditions" item="c" separator="">
+                <choose>
+                    <when test="c.field == 'gender'">
+                        <if test="c.operator == 'eq'">${logic} u.gender = #{c.value}</if>
+                        <if test="c.operator == 'neq'">${logic} u.gender != #{c.value}</if>
+                        <if test="c.operator == 'in'">${logic} u.gender IN <foreach collection="c.valueList" item="v" open="(" separator="," close=")">#{v}</foreach></if>
+                    </when>
+                    <when test="c.field == 'age'">
+                        <if test="c.operator == 'eq'">${logic} u.age = #{c.value}</if>
+                        <if test="c.operator == 'gt'">${logic} u.age &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'">${logic} u.age &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'">${logic} u.age &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'">${logic} u.age &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'">${logic} u.age BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                    </when>
+                    <when test="c.field == 'province'">
+                        <if test="c.operator == 'eq'">${logic} u.province = #{c.value}</if>
+                        <if test="c.operator == 'neq'">${logic} u.province != #{c.value}</if>
+                        <if test="c.operator == 'contains'">${logic} u.province LIKE CONCAT('%', #{c.value}, '%')</if>
+                        <if test="c.operator == 'in'">${logic} u.province IN <foreach collection="c.valueList" item="v" open="(" separator="," close=")">#{v}</foreach></if>
+                    </when>
+                    <when test="c.field == 'city'">
+                        <if test="c.operator == 'eq'">${logic} u.city = #{c.value}</if>
+                        <if test="c.operator == 'contains'">${logic} u.city LIKE CONCAT('%', #{c.value}, '%')</if>
+                    </when>
+                    <when test="c.field == 'total_payment_amount'">
+                        <if test="c.operator == 'gt'">${logic} COALESCE(ps.total_payment_amount, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'">${logic} COALESCE(ps.total_payment_amount, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'">${logic} COALESCE(ps.total_payment_amount, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'">${logic} COALESCE(ps.total_payment_amount, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'">${logic} COALESCE(ps.total_payment_amount, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                    </when>
+                    <when test="c.field == 'total_order_count'">
+                        <if test="c.operator == 'gt'">${logic} COALESCE(ps.total_order_count, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'">${logic} COALESCE(ps.total_order_count, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'">${logic} COALESCE(ps.total_order_count, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'">${logic} COALESCE(ps.total_order_count, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'">${logic} COALESCE(ps.total_order_count, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                    </when>
+                    <when test="c.field == 'browse_count_30d'">
+                        <if test="c.operator == 'gt'">${logic} COALESCE(ps.browse_count_30d, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'">${logic} COALESCE(ps.browse_count_30d, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'">${logic} COALESCE(ps.browse_count_30d, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'">${logic} COALESCE(ps.browse_count_30d, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'">${logic} COALESCE(ps.browse_count_30d, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                    </when>
+                    <when test="c.field == 'login_count_30d'">
+                        <if test="c.operator == 'gt'">${logic} COALESCE(ps.login_count_30d, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'">${logic} COALESCE(ps.login_count_30d, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'">${logic} COALESCE(ps.login_count_30d, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'">${logic} COALESCE(ps.login_count_30d, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'">${logic} COALESCE(ps.login_count_30d, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                    </when>
+                    <when test="c.field == 'segment_code'">
+                        <if test="c.operator == 'eq'">${logic} sg.segment_code = #{c.value}</if>
+                        <if test="c.operator == 'neq'">${logic} (sg.segment_code != #{c.value} OR sg.segment_code IS NULL)</if>
+                        <if test="c.operator == 'in'">${logic} sg.segment_code IN <foreach collection="c.valueList" item="v" open="(" separator="," close=")">#{v}</foreach></if>
+                    </when>
+                    <when test="c.field == 'segment_score'">
+                        <if test="c.operator == 'gt'">${logic} COALESCE(sg.segment_score, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'">${logic} COALESCE(sg.segment_score, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'">${logic} COALESCE(sg.segment_score, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'">${logic} COALESCE(sg.segment_score, 0) &lt;= #{c.value}</if>
+                    </when>
+                    <when test="c.field == 'tag_value'">
+                        <if test="c.operator == 'eq' or c.operator == 'contains'">${logic} EXISTS (SELECT 1 FROM user_profile_tag ut WHERE ut.user_id = u.id AND ut.tag_value = #{c.value})</if>
+                        <if test="c.operator == 'not_contains' or c.operator == 'neq'">${logic} NOT EXISTS (SELECT 1 FROM user_profile_tag ut WHERE ut.user_id = u.id AND ut.tag_value = #{c.value})</if>
+                    </when>
+                    <when test="c.field == 'tag_code'">
+                        <if test="c.operator == 'eq' or c.operator == 'contains'">${logic} EXISTS (SELECT 1 FROM user_profile_tag ut JOIN profile_tag_definition td ON td.id = ut.tag_id WHERE ut.user_id = u.id AND td.tag_code = #{c.value})</if>
+                    </when>
+                </choose>
+            </foreach>
+        </trim>
+    </sql>
+
+    <select id="countAllUsers" resultType="long">
+        SELECT COUNT(*) FROM ecommerce_user
+    </select>
+
+    <select id="queryAllProfilesPaged" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.UserProfileListItemResponse">
+        SELECT <include refid="audienceColumns"/> <include refid="audienceBase"/>
+        ORDER BY COALESCE(ps.total_payment_amount, 0) DESC, u.id ASC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAudience" resultType="long">
+        SELECT COUNT(*) <include refid="audienceBase"/> <include refid="audienceWhere"/>
+    </select>
+
+    <select id="queryAudience" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.UserProfileListItemResponse">
+        SELECT <include refid="audienceColumns"/> <include refid="audienceBase"/> <include refid="audienceWhere"/>
+        ORDER BY COALESCE(ps.total_payment_amount, 0) DESC, u.id ASC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <!-- ═══ 画像对比 ═══ -->
+    <select id="compareGender" resultType="java.util.HashMap">
+        SELECT u.gender AS label, COUNT(*) AS cnt FROM ecommerce_user u
+        WHERE u.id IN <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach> GROUP BY u.gender
+    </select>
+
+    <select id="compareAge" resultType="java.util.HashMap">
+        SELECT CASE
+            WHEN u.age BETWEEN 0 AND 17 THEN '0-17' WHEN u.age BETWEEN 18 AND 24 THEN '18-24'
+            WHEN u.age BETWEEN 25 AND 30 THEN '25-30' WHEN u.age BETWEEN 31 AND 40 THEN '31-40'
+            WHEN u.age BETWEEN 41 AND 50 THEN '41-50' ELSE '50+' END AS label, COUNT(*) AS cnt
+        FROM ecommerce_user u
+        WHERE u.id IN <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+        GROUP BY label ORDER BY MIN(u.age)
+    </select>
+
+    <select id="compareSegment" resultType="java.util.HashMap">
+        SELECT COALESCE(sg.segment_name, '未分层') AS label, COUNT(*) AS cnt
+        FROM ecommerce_user u LEFT JOIN user_segment sg ON sg.user_id = u.id
+        WHERE u.id IN <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+        GROUP BY sg.segment_name ORDER BY cnt DESC
+    </select>
+
+    <select id="compareAvgPayment" resultType="java.util.HashMap">
+        SELECT '平均客单价' AS label,
+            COALESCE(ROUND(AVG(ps.total_payment_amount), 2), 0) AS avgPayment,
+            COALESCE(SUM(ps.total_payment_amount), 0) AS totalPayment, COUNT(*) AS cnt
+        FROM ecommerce_user u LEFT JOIN user_profile_summary ps ON ps.user_id = u.id
+        WHERE u.id IN <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </select>
+
+    <select id="compareTags" resultType="java.util.HashMap">
+        SELECT ut.tag_value AS label, COUNT(DISTINCT ut.user_id) AS cnt FROM user_profile_tag ut
+        JOIN profile_tag_definition td ON td.id = ut.tag_id AND td.tag_code = 'FAVORITE_CATEGORY'
+        WHERE ut.user_id IN <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+        GROUP BY ut.tag_value ORDER BY cnt DESC LIMIT 10
+    </select>
+
+    <select id="compareConsumptionLevel" resultType="java.util.HashMap">
+        SELECT ut.tag_value AS label, COUNT(DISTINCT ut.user_id) AS cnt FROM user_profile_tag ut
+        JOIN profile_tag_definition td ON td.id = ut.tag_id AND td.tag_code = 'CONSUMPTION_LEVEL'
+        WHERE ut.user_id IN <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+        GROUP BY ut.tag_value ORDER BY cnt DESC
+    </select>
+
+</mapper>

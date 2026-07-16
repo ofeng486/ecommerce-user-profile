@@ -1,0 +1,11 @@
+// 重置默认样式
+@use './core/reset.scss';
+
+// 应用全局样式
+@use './core/app.scss';
+
+// Element Plus 样式优化
+@use './core/el-ui.scss';
+
+// 路由切换动画
+@use './core/router-transition';

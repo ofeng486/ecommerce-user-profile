@@ -1,0 +1,74 @@
+@startuml 电商用户画像分析系统架构图
+' ============================================
+' 电商用户画像分析系统 v2 — 系统架构图
+' 适用于毕业设计答辩 PPT
+' ============================================
+
+skinparam backgroundColor #FEFEFE
+skinparam defaultFontName Microsoft YaHei
+skinparam defaultFontSize 12
+skinparam rectangle {
+  BackgroundColor<<frontend>> #E3F2FD
+  BorderColor<<frontend>> #1976D2
+  BackgroundColor<<backend>> #E8F5E9
+  BorderColor<<backend>> #388E3C
+  BackgroundColor<<data>> #FFF3E0
+  BorderColor<<data>> #F57C00
+  BackgroundColor<<bigdata>> #F3E5F5
+  BorderColor<<bigdata>> #7B1FA2
+  BackgroundColor<<storage>> #ECEFF1
+  BorderColor<<storage>> #546E7A
+}
+
+title **电商用户画像分析系统 v2 — 系统架构图**
+
+' ── 用户层 ──
+rectangle "**浏览器**\nVue 3 + Element Plus + ECharts\nlocalhost:3006" <<frontend>> as Browser
+
+' ── 后端层 ──
+rectangle "**Spring Boot 3.3 后端**\nJava 17 / Maven\nlocalhost:8080" <<backend>> as Backend {
+  rectangle "interfaces\nREST Controller\n(9 个, 35+ API)" as Ctrl
+  rectangle "application\n业务 Service\n(6 个)" as Svc
+  rectangle "domain\nEntity / DTO / Mapper" as Domain
+  rectangle "infrastructure\nSecurity (JWT) / Importer" as Infra
+}
+
+' ── 数据库 ──
+database "**MySQL 8.0**\necommerce_user_profile\n(16 张表)" <<storage>> as MySQL {
+  folder "系统管理\nsys_user, sys_login_log" as SysTbl
+  folder "电商业务\nproduct, order, user" as BizTbl
+  folder "画像结果\nuser_segment, profile_tag" as ProfileTbl
+}
+
+' ── 大数据管线 ──
+rectangle "**Python 数据生成器**\ngenerate_data.py\n→ 7 个 CSV 文件" <<bigdata>> as Gen
+
+rectangle "**Hive 数仓 (集群模式)**\nODS → DWD → DWS → ADS\n(4 层, 19 张表)" <<bigdata>> as Hive
+
+rectangle "**PySpark 画像计算**\nRFM 打分 + 8 分类\n本地: run_local_pipeline.py\n集群: rfm_profile_job.py" <<bigdata>> as Spark
+
+' ── 关系 ──
+Browser --> Backend : REST API\n(JWT 认证)
+
+Backend --> MySQL : MyBatis-Plus\n(读写)
+
+Gen -down-> MySQL : CSV 导入\n(JDBC batch)
+
+Gen -down-> Hive : 上传 HDFS
+
+Hive --> Spark : DWS 用户指标表
+
+Spark -up-> Hive : ADS 结果表
+
+Spark --> MySQL : JDBC 写入\n画像结果表
+
+' ── 图例 ──
+legend right
+  |= 颜色 |= 层级 |
+  |<#E3F2FD> 蓝 | 前端展示层 |
+  |<#E8F5E9> 绿 | 后端业务层 |
+  |<#ECEFF1> 灰 | 数据存储层 |
+  |<#F3E5F5> 紫 | 大数据计算层 |
+endlegend
+
+@enduml

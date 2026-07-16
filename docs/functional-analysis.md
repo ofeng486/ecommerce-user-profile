@@ -1,0 +1,491 @@
+# 电商用户画像系统 v2 — 功能与业务逻辑分析报告
+
+> 分析范围：`backend/`（Spring Boot 后端）、`frontend/`（Vue 3 前端）、`bigdata-scripts/`（数据生成 + Hive 数仓 + PySpark 画像）、`docs/`（设计文档）
+> 输出维度：模块清单、业务场景与流程、数据流转与依赖、业务规则与约束、角色权限映射、解决的业务问题
+> 标注约定：【核心】=直接服务于画像分析主线；【辅助】=支撑性/管理性功能
+
+---
+
+## 一、模块总览
+
+系统按业务域划分为 **8 个核心模块 + 4 个辅助模块**，覆盖"数据生产 → 数仓加工 → 画像计算 → 可视化查询 → 精细化运营"的完整链路。
+
+| # | 模块 | 定位 | 角色 | 关键技术 |
+|---|------|------|------|----------|
+| 1 | 认证授权模块 | 【辅助】安全基座 | User/Admin | Spring Security + JWT + BCrypt |
+| 2 | 用户画像查询模块 | 【核心】画像消费 | User/Admin | MyBatis 原生 SQL + Spring Cache |
+| 3 | 画像计算引擎模块 | 【核心】画像生产 | Admin 触发 | PySpark + NTILE(5) + RFM |
+| 4 | 数据生成与导入模块 | 【核心】数据供给 | Admin | Python 流式 CSV + 编排器 |
+| 5 | 人群圈选与对比模块 | 【核心】运营应用 | Admin | 动态 SQL 条件构建器 |
+| 6 | 标签管理模块 | 【辅助】标签字典 | Admin | MyBatis-Plus CRUD |
+| 7 | 分析任务管理模块 | 【辅助】作业调度 | Admin | 线程池 + 进程异步 |
+| 8 | 系统管理模块 | 【辅助】后台管理 | Admin | MyBatis-Plus + 登录审计 |
+| 9 | AI 智能分析模块 | 【辅助】自然语言查询 | User/Admin | DeepSeek SSE + SQL 白名单 |
+| 10 | 站内通知模块 | 【辅助】消息触达 | User/Admin | 轮询接口 |
+| 11 | 公开可视化大屏 | 【辅助】对外展示 | 匿名 | 无鉴权 ECharts 大屏 |
+| 12 | Hive 数仓模块 | 【核心】离线加工 | 集群模式 | ODS/DWD/DWS/ADS 四层 |
+
+---
+
+## 二、核心模块详解
+
+### 模块 1：认证授权模块【辅助】
+
+**核心功能**
+- 用户注册（`POST /api/v1/auth/register`）、登录（`POST /api/v1/auth/login`）、获取当前用户（`GET /api/v1/auth/me`）
+- JWT 无状态认证：`JwtTokenProvider` 签发/校验令牌，`JwtAuthenticationFilter` 拦截请求注入身份
+- BCrypt 密码摘要存储，数据库不保存明文
+- 统一 401/403 JSON 错误响应（业务码 40100/40300）
+
+**业务流程**
+1. 前端提交账号密码 → `AuthServiceImpl` 校验账号状态 + BCrypt 比对
+2. 签发 JWT（含 userId、role）→ 返回 `accessToken`
+3. 后续请求携带 `Authorization: Bearer {token}` → 过滤器解析 → 注入 `AuthenticatedUser` 上下文
+4. 401 时前端 3 秒防抖自动登出并跳转登录
+
+**业务规则与约束**
+- 角色仅 `User`、`Admin` 两种，数据库 ENUM 存 `User`/`Admin`，Java 枚举内部用 `USER`/`ADMIN` 显式转换
+- 账号 `status=0` 禁止登录
+- 登录成功/失败均写入 `sys_login_log` 审计表
+- 会话策略 `STATELESS`，CSRF 关闭（纯 API 服务）
+
+**权限映射**
+- 公开：`/auth/login`、`/auth/register`、`/public/**`、`/system/health`
+- 鉴权：其余所有接口需登录
+- 管理员：`/api/v1/admin/**` 强制 `ROLE_ADMIN`
+
+---
+
+### 模块 2：用户画像查询模块【核心】
+
+**核心功能**（`UserProfileController` + `UserProfileServiceImpl`）
+- 画像概览：`GET /profiles/overview` — 总用户数、已画像数、高价值用户数、累计消费金额
+- 用户分层分布：`GET /profiles/segments/distribution` — 5 类价值分层的人数与占比
+- 标签分布：`GET /profiles/tags/distribution?tagCode=` — 按标签编码查各标签值用户数
+- 画像列表：`GET /profiles/users?keyword=&segmentCode=&page=&size=` — 分页 + 关键字 + 分层筛选
+- 画像详情：`GET /profiles/users/{userId}` — 消费指标、行为指标、分层信息
+
+**业务场景**
+运营人员登录后，在仪表盘查看整体画像覆盖率与分层分布，进入列表按用户编码或分层筛选目标用户，点击查看单用户画像详情，辅助精准营销决策。
+
+**数据流转与依赖**
+```
+Spark 写入 MySQL 画像结果表 ──只读查询──► UserProfileQueryMapper(原生SQL)
+                                          │
+                                          ├─ @Cacheable 概览/分布缓存
+                                          └─ 返回 DTO → 前端 ECharts 渲染
+```
+- 依赖表：`user_profile_summary`、`user_segment`、`user_profile_tag`、`ads_user_rfm`、`ecommerce_user`（均为 Spark 写入的只读表）
+- 缓存：概览、分层分布、标签分布使用 `@Cacheable`；Spark 重算或数据导入后由 `evictProfileCache()` 主动清除
+
+**业务规则与约束**
+- 画像结果表只读，后端不写入，仅 Spark 作业覆盖
+- 分页 size 上限 100（`Math.min(size, 100)`）
+- 用户不存在抛 `NOT_FOUND` 业务异常
+
+---
+
+### 模块 3：画像计算引擎模块【核心】
+
+**核心功能**（PySpark，两套实现）
+1. **集群模式** `spark/rfm_profile_job.py`：从 Hive `DWS` 表读取 → 计算 → 写入 Hive `ADS`
+2. **本地模式** `spark/run_local_pipeline.py`：从 CSV 直读 → 全链路 → JDBC 写入 MySQL（无集群依赖）
+
+**业务流程（本地管线 5 阶段）**
+```
+Phase 1 读取 CSV（7 张表）
+   ↓
+Phase 2 DWD 清洗：去重 + 有效性校验 + 维度关联
+   ├ 用户：status=1 & 年龄合法 & 注册时间非空
+   ├ 订单：状态∈{Paid,Shipped,Completed} & 金额一致(实付=总额-折扣) & 支付≥下单 & 下单≥注册
+   └ 行为：类型∈{View,Click,Favorite,Cart} & 行为时间≥注册时间
+   ↓
+Phase 3 DWS 汇总：按用户聚合消费/行为/登录指标 + 偏好分类(加权评分)
+   ├ 偏好分类权重：View=1, Click=2, Favorite=4, Cart=5
+   └ 近 30 日窗口统计
+   ↓
+Phase 4 RFM 打分 + 8 分类 + 5 分层 + 4 类标签
+   ↓
+Phase 5 JDBC truncate + overwrite 写入 MySQL 4 张结果表
+```
+
+**关键业务规则**
+
+*(1) RFM 打分（五分位法 NTILE(5)）*
+- R（Recency）：距最近消费天数，**取反向分 `6 - ntile`**，越近得分越高；无订单用户 R=1
+- F（Frequency）：有效订单数，ntile 升序
+- M（Monetary）：有效消费金额，ntile 升序
+- 综合得分权重：**R×0.4 + F×0.3 + M×0.3**
+
+*(2) 用户分层规则*
+
+**集群模式 5 分类**（基于 R/F/M 阈值）：
+| 编码 | 名称 | 规则 |
+|------|------|------|
+| HIGH_VALUE | 高价值用户 | R≥4 AND F≥4 AND M≥4 |
+| POTENTIAL | 潜力用户 | R≥4 AND (F≥3 OR M≥3) |
+| AT_RISK | 流失风险用户 | R≤2 AND (F≥4 OR M≥4) |
+| LOW_VALUE | 低价值用户 | F≤2 AND M≤2 |
+| GENERAL | 一般用户 | 其余 |
+
+**本地模式 8 分类**（R/F/M 各以 3 为界，2³=8 类）：
+HIGH_VALUE / HIGH_DEVELOP / HIGH_RETAIN / LOST_RETAIN / GEN_VALUE / GEN_DEVELOP / GEN_RETAIN / LOST，再合并映射为上述 5 分层，与集群结果对齐。
+
+*(3) 4 类用户标签*
+| 标签编码 | 规则 |
+|----------|------|
+| ACTIVE_LEVEL | 登录+浏览≥50→High；≥15→Medium；否则 Low |
+| CONSUMPTION_LEVEL | 累计消费≥10000→High；≥3000→Medium；否则 Low |
+| FAVORITE_CATEGORY | 加权评分最高的商品分类 |
+| RFM_SEGMENT | 用户分层编码 |
+
+*(4) 数据校验约束*
+- 订单金额一致性：`payment_amount = total_amount - discount_amount`
+- 时间逻辑：`paid_at ≥ ordered_at`、`ordered_at ≥ registered_at`、`behavior_at ≥ registered_at`
+- 商品价格非负、订单明细数量>0
+
+**依赖关系**
+- 输入：Python 生成的 7 张 CSV（或 Hive DWS 表）
+- 输出：`user_profile_summary`、`user_segment`、`user_profile_tag`、`ads_user_rfm`（MySQL）
+- 触发：由"分析任务管理模块"异步调用，超时 30 分钟强制终止
+
+---
+
+### 模块 4：数据生成与导入模块【核心】
+
+**核心功能**
+- **数据生成**（`generate_data.py`）：Python 标准库流式生成百万级电商模拟数据 CSV，支持固定随机种子保证可复现
+- **数据导入**：两条路径
+  - 上传导入：`POST /admin/import/upload`（多文件）→ 预览 → 导入
+  - 目录导入：`DataImportOrchestrator.importFromDirectory()`
+- **数据生成服务**（`DataGenerationServiceImpl`）：调 Python 生成 → 自动导入 MySQL → 保留 CSV 供 Spark 使用
+
+**生成数据范围**（7 张表）
+| 表 | 内容 | 规模参数 |
+|----|------|----------|
+| ecommerce_user | 电商用户（脱敏，无真实姓名/身份证/手机） | users |
+| product / product_category | 商品与分类（5 大类：数码/服装/家居/食品/美妆） | products |
+| user_browse_behavior | 浏览行为（View/Click/Favorite/Cart） | behaviors |
+| user_login_behavior | 登录行为（设备 PC/Android/iOS/Tablet） | =max(users, behaviors/10) |
+| sales_order / sales_order_item | 订单与明细 | orders |
+
+**业务流程（数据生成）**
+```
+Admin 选择预设/自定义参数 → 创建 DATA_GENERATE 任务(Pending)
+   → 异步线程：Python 生成 CSV 到 generated-data/ → Orchestrator 导入 MySQL
+   → 成功后清除画像缓存 → 任务状态 Succeeded
+   （CSV 不删除，供后续 Spark 画像任务读取）
+```
+
+**业务流程（CSV 导入）**
+```
+下载模板 → 选 CSV → /import/preview 识别表+预览 → /import/upload 上传
+   → 创建 DATA_IMPORT 任务 → 异步：MultipartFile 落盘 → 目录导入 → 清理临时文件
+```
+
+**业务规则与约束**
+- 模拟数据脱敏：仅生成 `user_code` 业务编码，不生成真实 PII
+- 地区从固定字典抽样（广东/浙江/江苏/四川/湖北 5 省）
+- 金额 `DECIMAL(18,2)`，按人民币分四舍五入
+- `MultipartFile` 必须在 HTTP 线程内落盘（修复异步 InputStream 失效坑）
+- 路径遍历防护：`Path.of(name).getFileName()` 取安全文件名
+- 导入结果摘要写入 `error_message` 字段（插入/更新/错误/跳过计数）
+- "清空全部数据"为危险操作，前端二次确认
+
+**数据流转**
+```
+Python 生成 CSV ──┬──► DataImportOrchestrator ──► MySQL 业务表（ecommerce_user 等）
+                  └──► 保留 CSV ──► Spark 画像任务读取 ──► MySQL 画像结果表
+```
+
+---
+
+### 模块 5：人群圈选与对比模块【核心】
+
+**核心功能**（`AdminAudienceController` + `AudienceSegmentationService` + `ProfileComparisonService`）
+- 实时预估圈选人数：`POST /admin/audience/estimate`
+- 执行圈选查询：`POST /admin/audience/search`（分页）
+- 人群包管理：保存/列表/更新/删除 `audience_package` + `audience_rule`
+- 画像对比：`POST /admin/audience/compare` — A/B 两个人群包多维度对比
+
+**业务场景**
+运营人员通过条件构建器组合用户属性与行为指标，实时查看预估人数，确认后保存为人群包，用于精准营销投放；可对比两个人群包的画像差异，辅助活动效果评估。
+
+**圈选字段清单（12 个，动态 SQL 构建）**
+| 字段 | 支持运算符 | 数据来源 |
+|------|-----------|----------|
+| gender | eq/neq/in | ecommerce_user |
+| age | eq/gt/gte/lt/lte/between | ecommerce_user |
+| province | eq/neq/contains/in | ecommerce_user |
+| city | eq/contains | ecommerce_user |
+| total_payment_amount | gt/gte/lt/lte/between | user_profile_summary |
+| total_order_count | gt/gte/lt/lte/between | user_profile_summary |
+| browse_count_30d | gt/gte/lt/lte/between | user_profile_summary |
+| login_count_30d | gt/gte/lt/lte/between | user_profile_summary |
+| segment_code | eq/neq/in | user_segment |
+| segment_score | gt/gte/lt/lte | user_segment |
+| tag_value | eq/contains/not_contains/neq | user_profile_tag（EXISTS 子查询） |
+| tag_code | eq/contains | user_profile_tag + profile_tag_definition |
+
+**对比维度（5 维）**
+性别分布 / 年龄段分布（0-17/18-24/25-30/31-40/41-50/50+）/ 用户分层分布 / 消费力等级分布（High/Medium/Low）/ 品类偏好分布
+
+**业务规则与约束**
+- 条件逻辑：AND / OR（`resolveLogic` 默认 AND）
+- `between` 运算符接收 `[from, to]` 数组；`in` 接收列表
+- 空条件时返回全量用户分页
+- 人群包删除为软删除（`status=0`）
+- 对比时两个人群包均空抛 `BAD_REQUEST`
+- 画像指标用 `COALESCE(..., 0)` 兜底，避免 NULL 影响筛选
+
+---
+
+### 模块 6：标签管理模块【辅助】
+
+**核心功能**（`AdminTagDefinitionController` + `TagDefinitionServiceImpl`）
+- 标签字典 CRUD：`GET/POST/PUT/PATCH /admin/tags`
+- 标签启停控制
+
+**业务规则**
+- `profile_tag_definition` 维护标签编码（如 ACTIVE_LEVEL）、名称、类型、状态
+- 标签值由 Spark 计算写入 `user_profile_tag`，本模块仅管理字典元数据
+- 标签分布查询（模块 2）依赖此字典做中文映射
+
+---
+
+### 模块 7：分析任务管理模块【辅助】
+
+**核心功能**（`AdminAnalysisTaskController` + `AnalysisTaskServiceImpl`）
+- 创建画像分析任务：`POST /admin/analysis-tasks`（PROFILE_FULL 类型）
+- 任务列表/详情：`GET /admin/analysis-tasks`、`GET /{id}`
+- 取消任务：`POST /{id}/cancel`
+- 删除任务：`DELETE /{id}`
+
+**业务流程**
+```
+Admin 创建任务(Pending) → 线程池异步执行 executePipeline()
+   → ProcessBuilder 调用 run_local_pipeline.py
+   → 状态流转：Pending → Running → Succeeded/Failed
+   → 成功后清除画像缓存
+```
+
+**业务规则与约束**
+- 线程池大小 2（允许同时 2 个任务）
+- 任务状态枚举：Pending / Running / Succeeded / Failed / Cancelled
+- 仅 Pending/Running 可取消
+- PySpark 超时 30 分钟强制终止
+- 错误信息截断 500 字符
+- 三类任务：`PROFILE_FULL`（画像计算）、`DATA_IMPORT`（数据导入）、`DATA_GENERATE`（数据生成）
+
+---
+
+### 模块 8：系统管理模块【辅助】
+
+**核心功能**（`AdminSystemUserController` + `SystemUserServiceImpl`）
+- 系统用户 CRUD：`GET/POST /admin/users`
+- 用户启停：`PATCH /admin/users/{id}/status`
+- 用户删除：`DELETE /admin/users/{id}`
+- 个人中心：`GET/PUT /admin/users/me`
+- 登录审计日志：`GET /admin/login-logs`
+
+**业务规则**
+- `sys_user` 与被分析的 `ecommerce_user` 完全独立（系统账号 ≠ 画像对象）
+- 创建用户时分配角色（User/Admin）
+- 登录日志记录成功/失败，失败时 `sys_user_id` 可空但保留提交的 username
+
+---
+
+### 模块 9：AI 智能分析模块【辅助】
+
+**核心功能**（`AIChatStreamController`）
+- 流式对话：`POST /api/v1/ai/stream`（SSE）
+- 普通对话：`POST /api/v1/ai/chat`（JSON）
+- 自然语言查询画像数据，自动生成并执行 SQL
+
+**业务流程**
+```
+用户提问 → 注入系统提示词 + 数据快照 → 调用 DeepSeek(有Key) / MockLLMProvider(无Key降级)
+   → 流式返回回答 → 提取 ```sql``` 代码块 → 白名单校验 → 执行 SELECT → 追加结果
+```
+
+**业务规则与约束（安全关键）**
+- 仅允许 `SELECT` 语句（正则校验）
+- 表名白名单（11 张业务表，**禁止访问 sys_user 等系统表**）：
+  `ecommerce_user / product / product_category / sales_order / sales_order_item / user_browse_behavior / user_login_behavior / user_profile_summary / user_segment / user_profile_tag / ads_user_rfm`
+- SQL 自动追加 `LIMIT 100`
+- 无 API Key 时降级为本地 Mock，保证可用性
+- 系统提示词防注入：明确"不可被用户输入覆盖"
+- 对话完成触发站内通知
+
+---
+
+### 模块 10：站内通知模块【辅助】
+
+**核心功能**（`SysNotificationController` + `NotificationService`）
+- 通知列表查询、已读标记
+- AI 分析完成、任务状态变更等事件触发通知
+
+---
+
+### 模块 11：公开可视化大屏【辅助】
+
+**核心功能**（`PublicController` + `/public/dashboard`）
+- 匿名访问的对外数据大屏，无需登录
+- 7 个 ECharts 图表 + KPI 卡片 + 滚动列表
+
+**业务规则**
+- 接口前缀 `/api/v1/public/**`，SecurityConfig 中 `permitAll()`
+- 部分图表（30 天活跃趋势、品类雷达、最新注册列表）当前为前端 mock 数据，未完全对接真实接口
+
+---
+
+### 模块 12：Hive 数仓模块【核心】
+
+**核心功能**（`bigdata-scripts/hive/*.sql`）
+- 四层数仓分层 ETL：ODS → DWD → DWS → ADS
+
+| 层 | 职责 | 关键处理 |
+|----|------|----------|
+| ODS | 外部表映射原始 CSV，保持字段原貌 | 字段直通 |
+| DWD | 去重 + 有效性校验 + 维度关联 | ROW_NUMBER 去重、用户/商品/分类关联 |
+| DWS | 按用户汇总指标 | 订单指标、30 日行为、偏好分类（加权评分） |
+| ADS | 画像汇总、RFM 分层、标签、分布统计 | 供接口查询的最终结果 |
+
+**数据流转边界**
+- `sys_*`、标签定义、任务表仅存 MySQL
+- 电商业务数据：Python 生成 → MySQL（演示）+ Hive ODS（离线）
+- Spark 从 Hive DWD/DWS 计算 → ADS（可追溯批次）+ 同步 MySQL（近期查询）
+
+---
+
+## 三、模块间数据流转总览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        数据生产层                                │
+│  generate_data.py ──CSV──► generated-data/                      │
+└───────────┬─────────────────────────────────┬───────────────────┘
+            │                                 │
+            ▼                                 ▼
+┌───────────────────────┐         ┌──────────────────────────────┐
+│  MySQL 业务表         │         │  Hive 数仓(集群模式)          │
+│  ecommerce_user 等    │         │  ODS→DWD→DWS→ADS             │
+│  (DataImportOrchestrator)│       └──────────────┬───────────────┘
+└───────────┬───────────┘                        │
+            │                                    │
+            │      ┌─────────────────────────────┘
+            │      │
+            │      ▼
+            │  ┌────────────────────────┐
+            │  │ PySpark 画像计算        │
+            │  │ rfm_profile_job.py     │  ← 集群模式(读Hive)
+            │  │ run_local_pipeline.py  │  ← 本地模式(读CSV)
+            │  └───────────┬────────────┘
+            │              │ JDBC truncate+overwrite
+            │              ▼
+            │  ┌────────────────────────────────┐
+            └─►│  MySQL 画像结果表(只读)         │
+               │  user_profile_summary          │
+               │  user_segment                  │
+               │  user_profile_tag              │
+               │  ads_user_rfm                  │
+               └───────────┬────────────────────┘
+                           │ 原生 SQL 只读查询
+                           ▼
+               ┌────────────────────────────────┐
+               │  Spring Boot 查询服务           │
+               │  UserProfileServiceImpl        │
+               │  AudienceSegmentationService   │
+               │  ProfileComparisonService      │
+               │  ( @Cacheable 缓存 )           │
+               └───────────┬────────────────────┘
+                           │ REST API (JWT)
+                           ▼
+               ┌────────────────────────────────┐
+               │  Vue 3 前端                     │
+               │  仪表盘/画像列表/标签分析/      │
+               │  人群圈选/对比/AI助手/大屏      │
+               └────────────────────────────────┘
+```
+
+**关键依赖链**：数据生成 → 导入 → Spark 计算 → MySQL 结果表 → API 查询 → 前端展示。Spark 作业是画像数据的唯一生产者，后端只读消费。
+
+---
+
+## 四、用户角色与权限体系
+
+### 角色定义
+| 角色 | 数据库值 | Java 枚举 | 定位 |
+|------|---------|-----------|------|
+| 普通用户 | `User` | `USER` | 查看画像分析结果 |
+| 管理员 | `Admin` | `ADMIN` | 管理数据、任务、用户、圈选 |
+
+### 功能权限矩阵
+| 功能域 | 接口前缀 | User | Admin |
+|--------|---------|------|-------|
+| 登录/注册/个人信息 | `/auth/**` | ✅ | ✅ |
+| 画像概览/分布/列表/详情 | `/profiles/**` | ✅ | ✅ |
+| 标签分布查看 | `/profiles/tags/**` | ✅ | ✅ |
+| 公开大屏 | `/public/**` | ✅(匿名) | ✅(匿名) |
+| AI 智能分析 | `/ai/**` | ✅ | ✅ |
+| 站内通知 | `/notifications/**` | ✅ | ✅ |
+| 系统用户管理 | `/admin/users/**` | ❌ | ✅ |
+| 标签字典管理 | `/admin/tags/**` | ❌ | ✅ |
+| 分析任务管理 | `/admin/analysis-tasks/**` | ❌ | ✅ |
+| 数据导入 | `/admin/import/**` | ❌ | ✅ |
+| 数据生成 | `/admin/data-generate/**` | ❌ | ✅ |
+| 人群圈选/对比/人群包 | `/admin/audience/**` | ❌ | ✅ |
+| 登录审计日志 | `/admin/login-logs` | ❌ | ✅ |
+
+### 权限实现机制
+- **后端**：`SecurityConfig` 路径级 `hasRole("ADMIN")` + `@EnableMethodSecurity` 方法级注解
+- **前端**：路由 `meta.roles` 声明权限，`MenuProcessor` 过滤菜单
+- **⚠️ 已知缺陷**：后端返回 `role`（单数 string），前端读取 `roles`（复数 array），字段不匹配导致**前端菜单角色过滤实际未生效**——普通 User 也能看到 Admin 菜单（但后端接口仍会拦截返回 403）。后端权限边界是可靠的，前端存在展示层漏洞。
+
+---
+
+## 五、已实现功能解决的业务问题
+
+| 业务痛点 | 解决方案 | 对应模块 |
+|---------|---------|---------|
+| 海量用户行为数据分散、分析效率低 | Python 流式生成 + Hive 四层数仓 + PySpark 分布式计算，支持百万级数据 | 数据生成/数仓/画像计算 |
+| 用户价值难以量化识别 | RFM 五分位模型 + 综合得分（R0.4+F0.3+M0.3）+ 5/8 分类分层 | 画像计算引擎 |
+| 用户属性/偏好/行为标签不统一 | 4 类标准化标签（活跃/消费/偏好/分层）+ 标签字典管理 | 标签管理/画像计算 |
+| 高价值用户识别困难 | HIGH_VALUE 分层（R≥4且F≥4且M≥4）+ 概览高价值用户数 | 画像查询 |
+| 精准营销缺乏数据支撑 | 12 字段动态人群圈选 + 实时预估 + 人群包管理 | 人群圈选 |
+| 营销活动效果无法对比评估 | A/B 人群包 5 维度画像对比（性别/年龄/分层/消费/品类） | 画像对比 |
+| 运营人员不懂技术、难以自助分析 | AI 自然语言查询 + 自动 SQL + 白名单安全 + Mock 降级 | AI 智能分析 |
+| 数据采集与演示成本高 | 一键生成脱敏模拟数据 + 自动导入，支持可复现随机种子 | 数据生成 |
+| 离线计算与在线查询耦合 | Spark 写 MySQL 结果表 + 后端只读 + 三级缓存，读写分离 | 画像查询/计算 |
+| 对外展示缺乏可视化 | 匿名公开大屏（7 图表 + KPI） | 公开可视化 |
+| 后台账号与画像对象混淆 | sys_user 与 ecommerce_user 完全隔离 | 系统管理 |
+| AI 查询数据安全风险 | SELECT-only + 表名白名单（排除系统表）+ LIMIT 100 | AI 智能分析 |
+
+---
+
+## 六、辅助功能与已知差距
+
+### 已完整实现的辅助功能
+- 登录审计日志、个人中心、站内通知
+- 任务状态轮询（前端 3 秒轮询，无活跃任务自动停止）
+- 画像查询三级缓存（概览/分层/标签分布）+ 主动失效
+- 限流拦截器 `RateLimitInterceptor`
+
+### 已知差距与风险
+1. **前端角色过滤失效**（高优）：`role` vs `roles` 字段不匹配，Admin 菜单对 User 可见
+2. **独立注册页未对接 API**：用 `setTimeout` mock，真实注册仅在首页弹窗实现
+3. **忘记密码页为空壳**：提交逻辑为空函数
+4. **公开大屏部分 mock**：30 天活跃趋势、品类雷达、最新注册列表未对接真实接口
+5. **测试覆盖率近零**：后端缺乏单元/集成测试
+6. **画像对比 mock 兜底**：后端异常时前端用硬编码数据渲染
+7. **API 调用分散**：导入/生成/个人中心接口未抽到 `api/` 模块
+8. **文档与代码不一致**：spark-profile.md 中 RFM 分层规则描述与本地管线 8 分类实现存在差异（已通过对齐映射解决）
+
+---
+
+## 七、技术架构要点
+
+- **后端分层**：common（统一响应/异常/枚举）→ domain（Entity/Mapper/DTO/Converter）→ infrastructure（Security/Importer/LLM/Config）→ application（Service）→ interfaces（Controller）
+- **统一规范**：`Result<T>` 封装响应、`/api/v1` 前缀、MapStruct 实体转换、MyBatis-Plus 分页、BCrypt 密码、`DECIMAL(18,2)` 金额、`utf8mb4/InnoDB`
+- **三种运行模式**：集群（HDFS→Hive→Spark）、本地 PySpark（CSV→Spark→MySQL）、演示模式（DemoDataImporter）
+- **读写分离**：Spark 写结果表，后端只读 + 缓存；任务完成后主动清缓存保证一致性
