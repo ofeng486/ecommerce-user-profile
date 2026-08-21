@@ -393,11 +393,7 @@ function initCharts() {
         data: data.length ? data : [{ name: '暂无数据', value: 1, itemStyle: { color: '#e2e8f0' } }]
       }]
     })
-    // 点击钻取：跳转到该分层用户列表
-    c.on('click', (p: any) => {
-      const s = segments.value.find(x => (x.segmentName || x.segmentCode || '未分类') === p.name)
-      if (s?.segmentCode) router.push({ path: '/profiles', query: { segment: s.segmentCode } })
-    })
+    // 画像列表查看归属用户门户（User 端），管理端运营总览不再提供分层钻取跳转
   }
 }
 

@@ -41,14 +41,23 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/api/v1/system/health", "/api/v1/auth/login",
                                 "/api/v1/auth/register", "/api/v1/public/**").permitAll()
-                        // 业务分析与人群运营：User（运营分析员）与 Admin 均可访问
+                        // 画像详情/列表、标签、指标、省份排名：仅普通用户（运营分析员）使用
+                        // （Admin 运营数据总览仅需 /overview 与 /segments/distribution，放行见下方 authentic 兜底）
+                        .requestMatchers(
+                                "/api/v1/profiles/tags/**",
+                                "/api/v1/profiles/metrics/**",
+                                "/api/v1/profiles/province-ranking/**",
+                                "/api/v1/profiles/users/**"
+                        ).hasRole("USER")
+                        // 业务分析与人群运营：仅普通用户（运营分析员）在 User 门户使用
                         .requestMatchers(
                                 "/api/v1/admin/product-analysis/**",
                                 "/api/v1/admin/repeat-analysis/**",
                                 "/api/v1/admin/churn-analysis/**",
-                                "/api/v1/admin/cluster-analysis/**",
                                 "/api/v1/admin/audience/**"
-                        ).hasAnyRole("ADMIN", "USER")
+                        ).hasRole("USER")
+                        // 聚类：Admin 用于「聚类重算」数据生产（Spark 作业），User 用于查看聚类结果
+                        .requestMatchers("/api/v1/admin/cluster-analysis/**").hasAnyRole("ADMIN", "USER")
                         .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
