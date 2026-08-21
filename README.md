@@ -51,7 +51,7 @@ ecommerce-user-profile/
 ├── frontend/           # 前端（Vue 3 + TypeScript）
 ├── bigdata-scripts/    # Python 数据生成、PySpark 画像计算、天池数据适配
 ├── design-system/      # 设计系统文档
-└── docs/               # 文档（SQL 脚本、部署说明、数据字典、架构图等）
+└── docs/               # 文档（运行部署、数据字典、分析说明等）
 ```
 
 ---
@@ -208,7 +208,7 @@ python -m unittest bigdata-scripts/test_generate_data.py -v
 
 ## 📚 文档
 
-运行与部署：见 `docs/deployment.md`。另有数据字典（`docs/data-dictionary.md`）、数据库模型（`docs/database-model.md`）、架构图（`docs/architecture-diagram.html`）、需求规格（`docs/requirements-specification.md`）等，均在 `docs/` 目录下。
+运行与部署：见 `docs/运行与部署.md`。另有数据字典（`docs/数据字典.md`）、数据库模型（`docs/数据库模型.md`）、功能与业务逻辑分析（`docs/功能与业务逻辑分析.md`）、数据导入模板（`docs/数据导入模板.md`）、Spark 画像任务说明（`docs/Spark画像任务说明.md`）、项目全景分析（`docs/项目全景分析.md`）等，均在 `docs/` 目录下。
 
 ## 🔒 安全说明
 
