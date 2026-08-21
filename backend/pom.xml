@@ -11,8 +11,8 @@
     <groupId>com.oufeng</groupId>
     <artifactId>ecommerce-user-profile-backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>ecommerce-user-profile-v2-backend</name>
-    <description>电商用户画像分析系统 v2 后端</description>
+    <name>ecommerce-user-profile-backend</name>
+    <description>电商用户画像分析系统后端</description>
 
     <properties>
         <java.version>17</java.version>
