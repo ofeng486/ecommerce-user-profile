@@ -37,3 +37,6 @@ bigdata-scripts/test-output/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 前端构建缓存（不应提交）
+frontend/.vite/

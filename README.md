@@ -56,6 +56,17 @@ ecommerce-user-profile/
 
 ---
 
+## ⚡ 快速上手（TL;DR）
+
+拿到源码后，**只需按这三步就能跑起来**（细节见下方"从 GitHub 下载源码到本地运行"）：
+
+1. **装依赖**：JDK 17、Node.js ≥ 20 + pnpm、Python ≥ 3.10、MySQL ≥ 8.0；后端用自带的 `mvnw`，无需单独装 Maven。
+2. **初始化数据库**：执行 `docs/sql/mysql-schema.sql`（自动建库 `ecommerce_user_profile` 与 22 张表）。
+3. **配环境变量 + 启动**：设 `DB_PASSWORD`、`JWT_SECRET`（≥32 字节，缺一后端启动失败；`AI_API_KEY` 可留空即降级为本地模拟 AI）；前端 `cp .env.example` 生成 `.env` / `.env.development` / `.env.production`；后端 `mvnw spring-boot:run`，前端 `pnpm install && pnpm dev`。
+
+> 首次运行无默认账号，请先注册一个普通用户；体验管理端用 `UPDATE sys_user SET role='Admin' WHERE username='...'` 提升权限。
+> 完整数据链路（生成 CSV → 导入 MySQL → PySpark 画像 → 写回）见下方第 7 步；不装 PySpark 也可先跑通前端 + 后端演示。
+
 ## 🚀 从 GitHub 下载源码到本地运行
 
 以下步骤面向「下载源码 zip 包 → 在本地跑起来」的新手。
