@@ -61,5 +61,5 @@
 ## Notes
 
 - v1 源码见 `../v1_archive/`（已归档），当前保持 API 接口契约不变。
-- 数据库：MySQL，16 张表，初始化脚本 `docs/sql/mysql-schema.sql`。
+- 数据库：MySQL，22 张表，初始化脚本 `docs/sql/mysql-schema.sql`。
 - 运行模式：本地 PySpark 模式（数据生成 → 画像计算 → 聚类分析全链路），支持 CSV/天池数据导入。
