@@ -1,6 +1,6 @@
 """PySpark 本地模式端到端用户画像计算管线。
 
-无集群依赖，直接读取 Python 生成的 CSV 文件，在本地完成数据清洗、
+无集群依赖，直接读取 MySQL 业务库（单一数据源），在本地完成数据清洗、
 指标汇总、RFM 8 分类打分和标签构建，最终 JDBC 写入 MySQL 画像结果表。
 
 运行方式：
@@ -10,7 +10,7 @@
     --mysql-user root
 
 或者直接 python 执行（自动创建本地 SparkSession）：
-  python run_local_pipeline.py --input ../generated-data/demo
+  python run_local_pipeline.py --jdbc-url "jdbc:mysql://localhost:3306/ecommerce_user_profile" --mysql-user root
 """
 
 from __future__ import annotations
@@ -48,35 +48,73 @@ def create_spark() -> SparkSession:
 
 
 # ═══════════════════════════════════════════════════════════════
-# Phase 1 — 读取 CSV 原始数据
+# Phase 1 — 读取 MySQL 原始数据（直读业务库，单一数据源）
 # ═══════════════════════════════════════════════════════════════
 
-def read_csv(spark: SparkSession, data_dir: str, file: str,
-             schema: Optional[str] = None) -> DataFrame:
-    """读取 CSV 文件，跳过表头行，自动推断类型。"""
-    path = str(Path(data_dir) / file)
-    reader = spark.read.option("header", "true").option("inferSchema", "true")
-    if schema:
-        reader = reader.schema(schema)
-    return reader.csv(path)
+# 各原始表的列清单（读取时统一字符串化，保证下游清洗逻辑与 CSV 模式一致）
+RAW_TABLE_COLUMNS = {
+    "product_category":     ["id", "parent_id", "category_name", "category_level", "status"],
+    "product":              ["id", "product_code", "category_id", "product_name", "brand_name", "unit_price", "status"],
+    "ecommerce_user":       ["id", "user_code", "gender", "age", "province", "city", "register_channel", "membership_level", "registered_at", "status"],
+    "user_browse_behavior": ["id", "user_id", "product_id", "behavior_type", "session_id", "device_type", "channel", "behavior_at"],
+    "user_login_behavior":  ["id", "user_id", "session_id", "device_type", "login_channel", "login_at", "logout_at", "duration_seconds"],
+    "sales_order":          ["id", "order_no", "user_id", "order_status", "total_amount", "discount_amount", "payment_amount", "payment_method", "ordered_at", "paid_at", "completed_at"],
+    "sales_order_item":     ["id", "order_id", "product_id", "product_name_snapshot", "unit_price", "quantity", "item_amount"],
+}
+
+# 时间列：MySQL DATETIME(3) 可能带毫秒，统一格式化为 yyyy-MM-dd HH:mm:ss（与历史 CSV 格式一致）
+RAW_TIME_COLUMNS = {"registered_at", "behavior_at", "login_at", "logout_at", "ordered_at", "paid_at", "completed_at"}
+
+# 内部键名 → 表名（保持下游 cleanse_dwd 的 key 不变）
+RAW_KEY_TO_TABLE = {
+    "category": "product_category",
+    "product": "product",
+    "user": "ecommerce_user",
+    "behavior": "user_browse_behavior",
+    "login": "user_login_behavior",
+    "order": "sales_order",
+    "order_item": "sales_order_item",
+}
 
 
-def load_raw_data(spark: SparkSession, data_dir: str) -> dict[str, DataFrame]:
-    """加载全部 7 张原始 CSV 表。"""
-    print("=== Phase 1：读取 CSV 原始数据 ===")
+def _read_table_as_strings(spark: SparkSession, table: str, jdbc: dict) -> DataFrame:
+    """从 MySQL 读取单张原始表：时间列格式化、其余列字符串化，与历史 CSV 输入格式完全一致。"""
+    exprs = []
+    for c in RAW_TABLE_COLUMNS[table]:
+        if c in RAW_TIME_COLUMNS:
+            exprs.append(f"DATE_FORMAT({c}, '%Y-%m-%d %H:%i:%s') AS {c}")
+        else:
+            exprs.append(f"CAST({c} AS CHAR) AS {c}")
+    sql = f"SELECT {', '.join(exprs)} FROM {table}"
+    return spark.read.jdbc(url=jdbc["url"], table=f"({sql}) t", properties=jdbc)
 
+
+def load_raw_data(spark: SparkSession, args: argparse.Namespace) -> dict[str, DataFrame]:
+    """加载全部 7 张原始表（直读 MySQL，单一数据源）。"""
+    print("=== Phase 1：读取 MySQL 原始数据 ===")
+    jdbc = jdbc_options(args)
     df = {}
-    df["category"]  = read_csv(spark, data_dir, "product_category.csv")
-    df["product"]   = read_csv(spark, data_dir, "product.csv")
-    df["user"]      = read_csv(spark, data_dir, "ecommerce_user.csv")
-    df["behavior"]  = read_csv(spark, data_dir, "user_browse_behavior.csv")
-    df["login"]     = read_csv(spark, data_dir, "user_login_behavior.csv")
-    df["order"]     = read_csv(spark, data_dir, "sales_order.csv")
-    df["order_item"]= read_csv(spark, data_dir, "sales_order_item.csv")
-
-    for name, d in df.items():
-        print(f"  {name}: {d.count()} 行")
+    for key, table in RAW_KEY_TO_TABLE.items():
+        d = _read_table_as_strings(spark, table, jdbc)
+        df[key] = d
+        print(f"  {key}: {d.count()} 行")
     return df
+
+
+def query_max_order_date(spark: SparkSession, args: argparse.Namespace) -> str:
+    """查询订单最大日期作为统计基准日（避免"当天"与数据时间窗口错位）。"""
+    try:
+        jdbc = jdbc_options(args)
+        row = spark.read.jdbc(
+            url=jdbc["url"],
+            table="(SELECT DATE_FORMAT(MAX(ordered_at), '%Y-%m-%d') AS d FROM sales_order) t",
+            properties=jdbc,
+        ).collect()[0]
+        val = row["d"]
+        return val if val else datetime.now().strftime("%Y-%m-%d")
+    except Exception as e:
+        print(f"  [warn] 查询最大订单日期失败，回退当天: {e}")
+        return datetime.now().strftime("%Y-%m-%d")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -185,7 +223,7 @@ def aggregate_dws(dwd: dict[str, DataFrame], stat_date: str) -> DataFrame:
         F.max("login_at").alias("last_login_at")
     )
 
-    # 偏好分类——加权行为评分
+    # 偏好分类——加权行为评分（行为品类优先）
     behavior_all = dwd["behavior"].filter(F.col("behavior_at") <= stat_date_col)
     pref_score = (
         F.when(F.col("behavior_type") == "View", 1)
@@ -196,8 +234,30 @@ def aggregate_dws(dwd: dict[str, DataFrame], stat_date: str) -> DataFrame:
     category_scores = behavior_all.withColumn("pref", pref_score) \
         .groupBy("user_id", "beh_cat_id").agg(F.sum("pref").alias("score"))
     win_cat = Window.partitionBy("user_id").orderBy(F.col("score").desc(), F.col("beh_cat_id").asc())
-    favorite_category = category_scores.withColumn("rn", F.row_number().over(win_cat)) \
+    favorite_by_behavior = category_scores.withColumn("rn", F.row_number().over(win_cat)) \
         .filter("rn = 1").select("user_id", F.col("beh_cat_id").alias("favorite_category_id"))
+
+    # 偏好分类——消费兜底：无浏览行为的用户，取消费金额 top1 品类（订单明细 join 商品分类）
+    spend_scores = dwd["order_item"].filter(
+        (F.col("ordered_at") <= stat_date_col) & F.col("item_amount").isNotNull()
+    ).join(
+        dwd["product"].select("id", "category_id"), F.col("product_id") == dwd["product"]["id"], "left"
+    ).filter(F.col("category_id").isNotNull()) \
+     .groupBy("user_id", "category_id").agg(
+        F.coalesce(F.sum("item_amount"), F.lit(0)).alias("spend")
+    )
+    win_spend = Window.partitionBy("user_id").orderBy(F.col("spend").desc(), F.col("category_id").asc())
+    favorite_by_spend = spend_scores.withColumn("rn", F.row_number().over(win_spend)) \
+        .filter("rn = 1").select("user_id", F.col("category_id").alias("favorite_category_id"))
+
+    # 合并：行为品类优先，消费品类兜底（full join 兼容两路来源的用户集合）
+    favorite_category = favorite_by_behavior.select(
+        "user_id", F.col("favorite_category_id").alias("beh_cat_id")
+    ).join(
+        favorite_by_spend.select("user_id", F.col("favorite_category_id").alias("spend_cat_id")),
+        "user_id", "full"
+    ).withColumn("favorite_category_id", F.coalesce(F.col("beh_cat_id"), F.col("spend_cat_id"))) \
+     .select("user_id", "favorite_category_id")
 
     # 合并为一张用户指标宽表
     metrics = dwd["user"].select(
@@ -269,7 +329,7 @@ def score_rfm(metrics: DataFrame, data_version: str) -> tuple[DataFrame, DataFra
     ).withColumn("data_version", F.lit(data_version)) \
      .withColumn("calculated_at", F.current_timestamp())
 
-    # ---------- 用户分层（8 分类合并为 5 类，与集群 rfm_profile_job.py 对齐） ----------
+    # ---------- 用户分层（8 分类合并为 5 类） ----------
     # 映射规则：
     #   HIGH_VALUE                      → HIGH_VALUE  高价值用户
     #   HIGH_DEVELOP / HIGH_RETAIN      → POTENTIAL   潜力用户（R≥3 且至少一个指标高）
@@ -339,12 +399,37 @@ def _build_tags(metrics: DataFrame, segment: DataFrame, data_version: str) -> Da
 
 
 # ═══════════════════════════════════════════════════════════════
+# Phase 6 — K-Means 用户聚类
+# ═══════════════════════════════════════════════════════════════
+
+def cluster_users(metrics: DataFrame, k: int = 5, data_version: str = "") -> DataFrame:
+    """K-Means 聚类（k 可配置）：消费金额/订单数/近30日浏览/登录，标准化后聚类。"""
+    print(f"=== Phase 6：K-Means 用户聚类（k={k}）===")
+    from pyspark.ml.feature import VectorAssembler, StandardScaler
+    from pyspark.ml.clustering import KMeans
+
+    feat_cols = ["total_payment_amount", "total_order_count", "browse_count_30d", "login_count_30d"]
+    df = metrics.select("user_id", *feat_cols).fillna(0)
+
+    vec = VectorAssembler(inputCols=feat_cols, outputCol="features_raw").transform(df)
+    scaled = StandardScaler(inputCol="features_raw", outputCol="features",
+                            withStd=True, withMean=True).fit(vec).transform(vec)
+    kmodel = KMeans(featuresCol="features", k=k, seed=42, maxIter=30).fit(scaled)
+    assigned = kmodel.transform(scaled).select("user_id", F.col("prediction").alias("cluster_id")) \
+        .withColumn("data_version", F.lit(data_version))
+
+    assigned.groupBy("cluster_id").count().orderBy("cluster_id").show(10, False)
+    print(f"  聚类完成：{assigned.count()} 个用户分配到 {kmodel.getK()} 个簇")
+    return assigned
+
+
+# ═══════════════════════════════════════════════════════════════
 # Phase 5 — 写入 MySQL
 # ═══════════════════════════════════════════════════════════════
 
 def write_to_mysql(summary: DataFrame, segment: DataFrame, tags: DataFrame,
-                   rfm: DataFrame, options: dict[str, str]) -> None:
-    """清空后覆盖写入 4 张画像结果表。"""
+                   rfm: DataFrame, cluster: DataFrame, options: dict[str, str]) -> None:
+    """清空后覆盖写入 5 张画像结果表。"""
     print("=== Phase 5：写入 MySQL ===")
 
     tables = [
@@ -352,6 +437,7 @@ def write_to_mysql(summary: DataFrame, segment: DataFrame, tags: DataFrame,
         (segment, "user_segment"),
         (tags,     "user_profile_tag"),
         (rfm,      "ads_user_rfm"),
+        (cluster,  "user_cluster"),
     ]
 
     for df, table in tables:
@@ -384,11 +470,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="PySpark 本地模式端到端用户画像计算管线"
     )
-    parser.add_argument("--input", default="../generated-data/demo",
-                        help="CSV 数据目录路径")
-    parser.add_argument("--stat-date",
-                        default=datetime.now().strftime("%Y-%m-%d"),
-                        help="统计截止日期 YYYY-MM-DD")
+    parser.add_argument("--input", default=None,
+                        help="[已废弃] CSV 数据目录（直读 MySQL 后不再使用，保留仅为兼容）")
+    parser.add_argument("--stat-date", default=None,
+                        help="统计截止日期 YYYY-MM-DD（缺省自动取订单最大日期）")
     parser.add_argument("--data-version",
                         default=datetime.now().strftime("%Y%m%d%H%M%S"),
                         help="分析批次版本号")
@@ -397,27 +482,35 @@ def main() -> None:
                         help="MySQL JDBC 连接地址")
     parser.add_argument("--mysql-user", default="root",
                         help="MySQL 用户名")
+    parser.add_argument("--k", type=int, default=5,
+                        help="K-Means 聚类簇数（默认 5）")
     args = parser.parse_args()
 
     spark = create_spark()
     try:
-        # Phase 1：读取 CSV
-        raw = load_raw_data(spark, args.input)
+        # Phase 1：直读 MySQL 原始数据（单一数据源）
+        raw = load_raw_data(spark, args)
+
+        # 统计基准日：缺省自动取订单最大日期（数据版本的时间窗口）
+        stat_date = args.stat_date or query_max_order_date(spark, args)
 
         # Phase 2：DWD 清洗
-        dwd = cleanse_dwd(raw, args.stat_date)
+        dwd = cleanse_dwd(raw, stat_date)
 
         # Phase 3：DWS 汇总
-        metrics = aggregate_dws(dwd, args.stat_date)
+        metrics = aggregate_dws(dwd, stat_date)
 
         # Phase 4：RFM 打分 + 8 分类 + 标签
         summary, segment, tags, rfm = score_rfm(metrics, args.data_version)
 
+        # Phase 6：K-Means 用户聚类（消费/订单/活跃特征，k 可配置）
+        cluster = cluster_users(metrics, args.k, args.data_version)
+
         # Phase 5：写入 MySQL
         opts = jdbc_options(args)
-        write_to_mysql(summary, segment, tags, rfm, opts)
+        write_to_mysql(summary, segment, tags, rfm, cluster, opts)
 
-        print(f"\n画像管线执行完毕。版本：{args.data_version}  统计日：{args.stat_date}")
+        print(f"\n画像管线执行完毕。版本：{args.data_version}  统计日：{stat_date}")
     finally:
         spark.stop()
 

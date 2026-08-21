@@ -29,7 +29,6 @@
  * ```
  *
  * @module types/api/api
- * @author Art Design Pro Team
  */
 
 declare namespace Api {
@@ -85,6 +84,8 @@ declare namespace Api {
       username: string
       displayName: string
       role: string
+      /** 前端兼容：由 role 转换而来的角色数组，用于权限判断 */
+      roles?: string[]
     }
   }
 

@@ -1,93 +1,84 @@
 <!-- 注册页面 -->
 <template>
-  <div class="flex w-full h-screen">
-    <LoginLeftView />
+  <AuthLayout>
+    <h3 class="title">{{ $t('register.title') }}</h3>
+    <p class="sub-title">{{ $t('register.subTitle') }}</p>
+    <ElForm
+      class="mt-7.5"
+      ref="formRef"
+      :model="formData"
+      :rules="rules"
+      label-position="top"
+      :key="formKey"
+    >
+      <ElFormItem prop="username">
+        <ElInput
+          class="custom-height"
+          v-model.trim="formData.username"
+          :placeholder="$t('register.placeholder.username')"
+        />
+      </ElFormItem>
 
-    <div class="relative flex-1">
-      <AuthTopBar />
+      <ElFormItem prop="password">
+        <ElInput
+          class="custom-height"
+          v-model.trim="formData.password"
+          :placeholder="$t('register.placeholder.password')"
+          type="password"
+          autocomplete="off"
+          show-password
+        />
+      </ElFormItem>
 
-      <div class="auth-right-wrap">
-        <div class="form">
-          <h3 class="title">{{ $t('register.title') }}</h3>
-          <p class="sub-title">{{ $t('register.subTitle') }}</p>
-          <ElForm
-            class="mt-7.5"
-            ref="formRef"
-            :model="formData"
-            :rules="rules"
-            label-position="top"
-            :key="formKey"
+      <ElFormItem prop="confirmPassword">
+        <ElInput
+          class="custom-height"
+          v-model.trim="formData.confirmPassword"
+          :placeholder="$t('register.placeholder.confirmPassword')"
+          type="password"
+          autocomplete="off"
+          @keyup.enter="register"
+          show-password
+        />
+      </ElFormItem>
+
+      <ElFormItem prop="agreement">
+        <ElCheckbox v-model="formData.agreement">
+          {{ $t('register.agreeText') }}
+          <RouterLink
+            style="color: var(--theme-color); text-decoration: none"
+            to="/privacy-policy"
+            >{{ $t('register.privacyPolicy') }}</RouterLink
           >
-            <ElFormItem prop="username">
-              <ElInput
-                class="custom-height"
-                v-model.trim="formData.username"
-                :placeholder="$t('register.placeholder.username')"
-              />
-            </ElFormItem>
+        </ElCheckbox>
+      </ElFormItem>
 
-            <ElFormItem prop="password">
-              <ElInput
-                class="custom-height"
-                v-model.trim="formData.password"
-                :placeholder="$t('register.placeholder.password')"
-                type="password"
-                autocomplete="off"
-                show-password
-              />
-            </ElFormItem>
-
-            <ElFormItem prop="confirmPassword">
-              <ElInput
-                class="custom-height"
-                v-model.trim="formData.confirmPassword"
-                :placeholder="$t('register.placeholder.confirmPassword')"
-                type="password"
-                autocomplete="off"
-                @keyup.enter="register"
-                show-password
-              />
-            </ElFormItem>
-
-            <ElFormItem prop="agreement">
-              <ElCheckbox v-model="formData.agreement">
-                {{ $t('register.agreeText') }}
-                <RouterLink
-                  style="color: var(--theme-color); text-decoration: none"
-                  to="/privacy-policy"
-                  >{{ $t('register.privacyPolicy') }}</RouterLink
-                >
-              </ElCheckbox>
-            </ElFormItem>
-
-            <div style="margin-top: 15px">
-              <ElButton
-                class="w-full custom-height"
-                type="primary"
-                @click="register"
-                :loading="loading"
-                v-ripple
-              >
-                {{ $t('register.submitBtnText') }}
-              </ElButton>
-            </div>
-
-            <div class="mt-5 text-sm text-g-600">
-              <span>{{ $t('register.hasAccount') }}</span>
-              <RouterLink class="text-theme" :to="{ name: 'Login' }">{{
-                $t('register.toLogin')
-              }}</RouterLink>
-            </div>
-          </ElForm>
-        </div>
+      <div style="margin-top: 15px">
+        <ElButton
+          class="w-full custom-height"
+          type="primary"
+          @click="register"
+          :loading="loading"
+          v-ripple
+        >
+          {{ $t('register.submitBtnText') }}
+        </ElButton>
       </div>
-    </div>
-  </div>
+
+      <div class="mt-5 text-sm text-slate-500">
+        <span>{{ $t('register.hasAccount') }}</span>
+        <RouterLink class="text-theme" :to="{ name: 'Login' }">{{
+          $t('register.toLogin')
+        }}</RouterLink>
+      </div>
+    </ElForm>
+  </AuthLayout>
 </template>
 
 <script setup lang="ts">
   import { useI18n } from 'vue-i18n'
   import type { FormInstance, FormRules } from 'element-plus'
+  import { fetchRegister } from '@/api/auth'
 
   defineOptions({ name: 'Register' })
 
@@ -202,26 +193,20 @@
       await formRef.value.validate()
       loading.value = true
 
-      // TODO: 替换为真实 API 调用
-      // const params = {
-      //   username: formData.username,
-      //   password: formData.password
-      // }
-      // const res = await AuthService.register(params)
-      // if (res.code === ApiStatus.success) {
-      //   ElMessage.success('注册成功')
-      //   toLogin()
-      // }
-
-      // 模拟注册请求
-      setTimeout(() => {
-        loading.value = false
-        ElMessage.success('注册成功')
-        toLogin()
-      }, REDIRECT_DELAY)
-    } catch (error) {
-      console.error('表单验证失败:', error)
+      // 调用真实注册 API
+      await fetchRegister({
+        username: formData.username,
+        password: formData.password,
+        displayName: formData.username
+      })
+      ElMessage.success('注册成功')
+      toLogin()
+    } catch (error: any) {
+      console.error('注册失败:', error)
       loading.value = false
+      if (error?.message && error?.message !== 'validate error!') {
+        ElMessage.error(error.message)
+      }
     }
   }
 
@@ -236,5 +221,59 @@
 </script>
 
 <style scoped>
-  @import '../login/style.css';
+  .title {
+    font-size: 24px;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 0;
+    font-family: 'Space Grotesk', 'Plus Jakarta Sans', 'PingFang SC', sans-serif;
+    letter-spacing: -0.3px;
+  }
+  .sub-title {
+    font-size: 13.5px;
+    color: #94a3b8;
+    margin-top: 6px;
+  }
+  .custom-height {
+    height: 44px !important;
+  }
+  /* 输入框 focus 光环（品牌蓝） */
+  .custom-height :deep(.el-input__wrapper) {
+    border-radius: 10px;
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.08) inset;
+    transition: box-shadow 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+    background: #fafbfc;
+  }
+  .custom-height :deep(.el-input__wrapper.is-focus) {
+    box-shadow:
+      0 0 0 1.5px #2563eb inset,
+      0 0 0 4px rgba(37, 99, 235, 0.08) !important;
+    background: #fff;
+  }
+  .custom-height :deep(.el-input__inner) {
+    font-family: 'Plus Jakarta Sans', 'Inter', 'PingFang SC', sans-serif;
+  }
+  /* 主按钮渐变胶囊 */
+  .w-full.custom-height.el-button--primary {
+    border-radius: 999px !important;
+    border: none !important;
+    background: linear-gradient(135deg, #2563eb, #1e40af) !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.06em !important;
+    box-shadow: 0 6px 18px rgba(37, 99, 235, 0.18) !important;
+    transition: all 0.3s cubic-bezier(0.32, 0.72, 0, 1) !important;
+  }
+  .w-full.custom-height.el-button--primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 26px rgba(37, 99, 235, 0.26) !important;
+  }
+  .w-full.custom-height.el-button--primary.is-plain {
+    background: #fff !important;
+    color: #2563eb !important;
+    border: 1.5px solid rgba(37, 99, 235, 0.25) !important;
+    box-shadow: none !important;
+  }
+  .w-full.custom-height.el-button--primary.is-plain:hover {
+    background: #eff6ff !important;
+  }
 </style>

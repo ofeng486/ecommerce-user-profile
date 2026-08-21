@@ -6,11 +6,8 @@ import request from '@/utils/http'
  */
 export function fetchLogin(params: { username: string; password: string }) {
   return request.post<{
-    code: number; message: string;
-    data: {
-      accessToken: string; tokenType: string; expiresIn: number;
-      userId: number; username: string; displayName: string; role: string;
-    }
+    accessToken: string; tokenType: string; expiresIn: number;
+    userId: number; username: string; displayName: string; role: string;
   }>({ url: '/api/v1/auth/login', data: params })
 }
 
@@ -18,7 +15,7 @@ export function fetchLogin(params: { username: string; password: string }) {
  * 注册
  */
 export function fetchRegister(params: { username: string; password: string; displayName: string }) {
-  return request.post<{ code: number; message: string; data: any }>({
+  return request.post<{ userId: number; username: string; displayName: string; role: string }>({
     url: '/api/v1/auth/register', data: params
   })
 }
@@ -27,8 +24,7 @@ export function fetchRegister(params: { username: string; password: string; disp
  * 获取当前用户信息
  */
 export function fetchGetUserInfo() {
-  return request.get<{
-    code: number; message: string;
-    data: { userId: number; username: string; displayName: string; role: string }
-  }>({ url: '/api/v1/auth/me' })
+  return request.get<{ userId: number; username: string; displayName: string; role: string }>({
+    url: '/api/v1/auth/me'
+  })
 }

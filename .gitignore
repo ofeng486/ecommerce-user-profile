@@ -1,36 +1,39 @@
-# ── Maven ──
+# ═══ 电商用户画像分析系统 .gitignore ═══
+
+# 构建产物
 backend/target/
-*.class
-*.war
-
-# ── Node / Frontend ──
-frontend/node_modules/
 frontend/dist/
-frontend/*.local
-*.tsbuildinfo
 
-# ── Python / Bigdata ──
-bigdata-scripts/__pycache__/
-bigdata-scripts/**/__pycache__/
-bigdata-scripts/.pytest_cache/
-bigdata-scripts/generated-data/
-*.pyc
-*.pyo
+# 依赖
+frontend/node_modules/
 
-# ── IDE & Editor ──
+# 环境与密钥（禁止提交；.env.example 除外）
+.env
+.env.*
+!.env.example
+
+# 本地开发配置（含真实密钥，禁止提交）
+backend/src/main/resources/application-local*.properties
+
+# 本地生成数据与临时文件
+generated-data/
+*.log
+tmp/
+*.tmp
+
+# 数据导出/测试输出（模拟数据不入库）
+bigdata-scripts/test-output/
+/数据导入总表_10个新用户.csv
+
+# 个人文件（不入库）
+简历/
+
+# 工具/IDE 目录（本地工作记忆与配置不入库）
+.workbuddy/
+.reasonix/
 .idea/
-*.iml
 .vscode/
-*.swp
-*.swo
-*~
 
-# ── OS ──
+# 系统文件
 .DS_Store
 Thumbs.db
-
-# ── WorkBuddy 本地缓存 ──
-.workbuddy/
-
-# ── 第三方工具缓存 ──
-.reasonix/

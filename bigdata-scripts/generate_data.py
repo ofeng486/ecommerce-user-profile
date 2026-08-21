@@ -19,12 +19,13 @@ DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 MONEY_UNIT = Decimal("0.01")
 
 CATEGORIES = [
-    (1, "数码产品"),
-    (2, "服装鞋包"),
+    (1, "数码家电"),
+    (2, "服装鞋靴"),
     (3, "家居生活"),
     (4, "食品饮料"),
     (5, "美妆个护"),
 ]
+
 PROVINCES = [
     ("广东省", "广州市"),
     ("浙江省", "杭州市"),
@@ -106,6 +107,7 @@ def generate_products(output: Path, count: int, rng: random.Random) -> list[Prod
         for product_id in range(1, count + 1):
             category_id, category_name = rng.choice(CATEGORIES)
             price = money(Decimal(rng.randint(990, 399900)) / Decimal(100))
+            # 商品名用"品类+模拟商品+全局唯一编号"（编号随 product_id 递增，全局不重复）
             name = f"{category_name}模拟商品{product_id}"
             snapshot = ProductSnapshot(product_id, category_id, name, price)
             products.append(snapshot)

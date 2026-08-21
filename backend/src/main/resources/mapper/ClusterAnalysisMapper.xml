@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.oufeng.ecommerceuserprofile.infrastructure.mapper.ClusterAnalysisMapper">
+
+    <select id="queryClusterOverview" resultType="java.util.HashMap">
+        SELECT c.cluster_id AS clusterId,
+               COUNT(*) AS userCount,
+               ROUND(AVG(p.total_payment_amount), 2) AS avgAmount,
+               ROUND(AVG(p.total_order_count), 1) AS avgOrders,
+               ROUND(AVG(p.browse_count_30d), 1) AS avgBrowse,
+               ROUND(AVG(p.login_count_30d), 1) AS avgLogin,
+               -- 簇内用户分层的众数（业务主导分层，用于动态命名簇；画像重算后自动跟随）
+               -- 按 (segment_code, segment_name) GROUP BY 兼容 sql_mode=only_full_group_by
+               (SELECT sg.segment_code
+                FROM user_segment sg
+                JOIN user_cluster cc ON cc.user_id = sg.user_id
+                WHERE cc.cluster_id = c.cluster_id
+                GROUP BY sg.segment_code, sg.segment_name
+                ORDER BY COUNT(*) DESC
+                LIMIT 1) AS dominantSegment,
+               (SELECT sg.segment_name
+                FROM user_segment sg
+                JOIN user_cluster cc ON cc.user_id = sg.user_id
+                WHERE cc.cluster_id = c.cluster_id
+                GROUP BY sg.segment_code, sg.segment_name
+                ORDER BY COUNT(*) DESC
+                LIMIT 1) AS dominantSegmentName
+        FROM user_cluster c
+        LEFT JOIN user_profile_summary p ON p.user_id = c.user_id
+        GROUP BY c.cluster_id
+        ORDER BY c.cluster_id
+    </select>
+
+    <select id="queryClusterUsers" resultType="java.util.HashMap">
+        SELECT u.id AS userId, u.user_code AS userCode, u.gender AS gender, u.age AS age, u.province AS province,
+               s.segment_name AS segmentName,
+               COALESCE(p.total_payment_amount, 0) AS totalPaymentAmount,
+               COALESCE(p.total_order_count, 0) AS totalOrderCount
+        FROM user_cluster c
+        JOIN ecommerce_user u ON u.id = c.user_id
+        LEFT JOIN user_profile_summary p ON p.user_id = u.id
+        LEFT JOIN user_segment s ON s.user_id = u.id
+        WHERE c.cluster_id = #{cluster}
+        <choose>
+            <when test="orderBy == 'totalPaymentAmount'">
+                ORDER BY totalPaymentAmount ${orderDir == 'asc' ? 'ASC' : 'DESC'}
+            </when>
+            <when test="orderBy == 'orderCount'">
+                ORDER BY totalOrderCount ${orderDir == 'asc' ? 'ASC' : 'DESC'}, totalPaymentAmount DESC
+            </when>
+            <otherwise>
+                ORDER BY totalPaymentAmount DESC
+            </otherwise>
+        </choose>
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="queryClusterUsersAll" resultType="java.util.HashMap">
+        SELECT u.id AS userId, u.user_code AS userCode, u.gender AS gender, u.age AS age, u.province AS province,
+               s.segment_name AS segmentName,
+               COALESCE(p.total_payment_amount, 0) AS totalPaymentAmount,
+               COALESCE(p.total_order_count, 0) AS totalOrderCount
+        FROM user_cluster c
+        JOIN ecommerce_user u ON u.id = c.user_id
+        LEFT JOIN user_profile_summary p ON p.user_id = u.id
+        LEFT JOIN user_segment s ON s.user_id = u.id
+        WHERE c.cluster_id = #{cluster}
+        ORDER BY totalPaymentAmount DESC
+    </select>
+
+    <select id="countClusterUsers" resultType="long">
+        SELECT COUNT(*) FROM user_cluster WHERE cluster_id = #{cluster}
+    </select>
+
+    <select id="queryDataVersion" resultType="java.util.HashMap">
+        SELECT MAX(data_version) AS dataVersion, MAX(calculated_at) AS calculatedAt FROM user_cluster
+    </select>
+
+</mapper>

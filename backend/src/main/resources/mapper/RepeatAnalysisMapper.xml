@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.oufeng.ecommerceuserprofile.infrastructure.mapper.RepeatAnalysisMapper">
+
+    <sql id="validOrderJoin">
+        LEFT JOIN sales_order o ON o.user_id = u.id AND o.order_status IN ('Paid', 'Shipped', 'Completed')
+    </sql>
+
+    <select id="queryPurchaseDistribution" resultType="java.util.HashMap">
+        SELECT CASE
+                 WHEN cnt = 0 THEN '0 次'
+                 WHEN cnt = 1 THEN '1 次'
+                 WHEN cnt &lt;= 3 THEN '2-3 次'
+                 WHEN cnt &lt;= 6 THEN '4-6 次'
+                 WHEN cnt &lt;= 10 THEN '7-10 次'
+                 ELSE '10 次以上'
+               END AS band,
+               COUNT(*) AS userCount
+        FROM (SELECT u.id, COUNT(o.id) AS cnt FROM ecommerce_user u
+              <include refid="validOrderJoin"/>
+              GROUP BY u.id) t
+        GROUP BY band
+        ORDER BY MIN(cnt)
+    </select>
+
+    <select id="queryRepeatRate" resultType="java.util.HashMap">
+        SELECT COUNT(*) AS totalUsers,
+               COALESCE(SUM(cnt &gt;= 1), 0) AS buyerUsers,
+               COALESCE(SUM(cnt &gt;= 2), 0) AS multiBuyerUsers,
+               (SELECT MAX(paid_at) FROM sales_order WHERE order_status IN ('Paid', 'Shipped', 'Completed')) AS dataDate
+        FROM (SELECT u.id, COUNT(o.id) AS cnt FROM ecommerce_user u
+              <include refid="validOrderJoin"/>
+              GROUP BY u.id) t
+    </select>
+
+    <select id="queryAvgInterval" resultType="java.util.HashMap">
+        SELECT ROUND(AVG(span), 1) AS avgIntervalDays, COUNT(*) AS multiBuyerUsers
+        FROM (SELECT u.id,
+                     DATEDIFF(MAX(o.ordered_at), MIN(o.ordered_at)) / NULLIF(COUNT(o.id) - 1, 0) AS span
+              FROM ecommerce_user u
+              JOIN sales_order o ON o.user_id = u.id AND o.order_status IN ('Paid', 'Shipped', 'Completed')
+              GROUP BY u.id
+              HAVING COUNT(o.id) &gt;= 2) t
+    </select>
+
+    <select id="queryRetentionCohort" resultType="java.util.HashMap">
+        SELECT fm.firstMonth AS firstMonth,
+               TIMESTAMPDIFF(MONTH, fm.firstOrderAt, o.ordered_at) AS monthIndex,
+               COUNT(DISTINCT fm.id) AS retentionUsers
+        FROM (SELECT u.id, MIN(o.ordered_at) AS firstOrderAt, DATE_FORMAT(MIN(o.ordered_at), '%Y-%m') AS firstMonth
+              FROM ecommerce_user u
+              JOIN sales_order o ON o.user_id = u.id AND o.order_status IN ('Paid', 'Shipped', 'Completed')
+              GROUP BY u.id) fm
+        JOIN sales_order o ON o.user_id = fm.id AND o.order_status IN ('Paid', 'Shipped', 'Completed')
+        GROUP BY fm.firstMonth, TIMESTAMPDIFF(MONTH, fm.firstOrderAt, o.ordered_at)
+        ORDER BY fm.firstMonth, monthIndex
+    </select>
+
+    <select id="queryTopRepeat" resultType="java.util.HashMap">
+        SELECT u.id AS userId, u.user_code AS userCode,
+               COUNT(o.id) AS orderCount,
+               COALESCE(SUM(o.payment_amount), 0) AS amount,
+               MAX(o.ordered_at) AS lastOrderAt
+        FROM ecommerce_user u
+        JOIN sales_order o ON o.user_id = u.id AND o.order_status IN ('Paid', 'Shipped', 'Completed')
+        GROUP BY u.id, u.user_code
+        ORDER BY orderCount DESC
+        LIMIT 10
+    </select>
+
+</mapper>

@@ -123,7 +123,7 @@
 
 ### 6.5 `ads_user_rfm`
 
-RFM 8 分类精细化分层结果（由 `rfm_sql_8seg.py` 和 `run_local_pipeline.py` 写入）：
+RFM 8 分类精细化分层结果（由 `run_local_pipeline.py` 写入）：
 
 - `r_value` / `f_value` / `m_value`：R/F/M 原始值；
 - `r_score` / `f_score` / `m_score`：NTILE(5) 打分（1～5）；
@@ -143,17 +143,17 @@ Pending -> Running -> Succeeded
 Pending/Running -> Cancelled
 ```
 
-失败时写入截断、脱敏后的错误摘要，完整 Spark 日志保存在集群日志系统中，不直接写入数据库。
+失败时写入截断、脱敏后的错误摘要，完整 Spark 日志保存在本地日志文件中，不直接写入数据库。
 
-## 8. Hive 分层映射
+## 8. 画像计算分层映射（本地 PySpark 管线）
 
-| MySQL/模拟数据 | Hive 层 | 说明 |
+| MySQL 业务数据 | 管线阶段 | 说明 |
 | --- | --- | --- |
-| `ecommerce_user`、`product_category`、`product` | `ODS` -> `DWD` | 维度基础数据清洗 |
-| `user_browse_behavior`、`user_login_behavior` | `ODS` -> `DWD` | 行为去重、时间和字段标准化 |
-| `sales_order`、`sales_order_item` | `ODS` -> `DWD` | 订单口径清洗和明细关联 |
-| 用户级汇总指标 | `DWS` | 按用户聚合浏览、登录和消费指标 |
-| 标签、画像、用户分层 | `ADS` -> MySQL | Spark 结果同步给后端查询 |
+| `ecommerce_user`、`product_category`、`product` | DWD 清洗 | 维度基础数据清洗 |
+| `user_browse_behavior`、`user_login_behavior` | DWD 清洗 | 行为去重、时间和字段标准化 |
+| `sales_order`、`sales_order_item` | DWD 清洗 | 订单口径清洗和明细关联 |
+| 用户级汇总指标 | DWS 聚合 | 按用户聚合浏览、登录和消费指标 |
+| 标签、画像、用户分层 | 结果写回 | Spark 结果同步给后端查询 |
 
 ## 9. 索引与数据量说明
 

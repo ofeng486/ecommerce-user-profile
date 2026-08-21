@@ -1,4 +1,4 @@
-# 电商用户画像分析系统 v2 — 项目全面分析报告
+# 电商用户画像分析系统 — 项目全面分析报告
 
 > 分析日期：2026-07-13
 
@@ -12,8 +12,8 @@
 | **技术栈** | Java 17 / Spring Boot 3.3.7 / MyBatis-Plus 3.5 / Vue 3 + TypeScript / PySpark |
 | **数据库** | MySQL 8.0+ (utf8mb4)，共 16 张表 |
 | **构建工具** | Maven（后端）+ pnpm（前端） |
-| **版本** | v2，对 v1 的分层架构重构 |
-| **运行模式** | 集群模式 (HDFS→Hive→Spark) / 本地 PySpark 模式 / 演示模式 |
+| **版本** | 分层架构重构版 |
+| **运行模式** | 本地 PySpark 模式（数据生成 → 画像 → 聚类全链路）+ CSV/天池数据导入 |
 
 ---
 
@@ -35,11 +35,11 @@
                                                  │ 写入画像结果
                     ┌────────────────────────────┼────────────────────────────┐
                     │                            │                            │
-              ┌─────┴──────┐            ┌───────┴──────┐          ┌──────────┴──────────┐
-              │ 集群模式    │            │  本地模式     │          │     演示模式          │
-              │ HDFS→Hive  │            │  run_local_  │          │  DemoDataImporter    │
-              │ →Spark作业 │            │  pipeline.py │          │  Java批量导入         │
-              └────────────┘            └──────────────┘          └─────────────────────┘
+              ┌──────────────┐                              ┌──────────┴──────────┐
+              │  本地模式     │                              │     数据导入模式     │
+              │ run_local_   │                              │  CSV / 天池数据      │
+              │ pipeline.py  │                              │  导入器              │
+              └──────────────┘                              └─────────────────────┘
                     ▲
            ┌────────┴────────┐
            │  generate_data  │  ← Python 百万级模拟数据生成
@@ -78,7 +78,7 @@ common (Result / Exception / BaseEntity)       ← 横切通用组件
 | `infrastructure/config` | 2 | Security 配置（角色权限矩阵）、MyBatis-Plus 分页/审计插件 |
 | `infrastructure/importer` | 8 | 7 张业务表的 CSV 批量导入器 + 编排器 |
 | `infrastructure/mapper` | 1 | UserProfileQueryMapper（原生 SQL + XML） |
-| `interfaces` | 9 | REST Controller，含兼容 art-design-pro 框架的适配接口 |
+| `interfaces` | 9 | REST Controller，统一 `/api/v1` 前缀 + `Result<T>` 封装 |
 
 ### 3.3 API 端点统计
 
@@ -163,27 +163,24 @@ common (Result / Exception / BaseEntity)       ← 横切通用组件
 | 内存优化 | 订单明细和浏览行为流式写入，不驻留内存 |
 | 隐私合规 | 无真实姓名/手机号/身份证/地址等敏感字段 |
 
-### 5.2 数仓分层 (Hive)
+### 5.2 画像计算分层（本地 PySpark 管线）
 
 ```
-ODS (7 张外部表) → DWD (6 张 Parquet 清洗表) → DWS (1 张用户指标宽表) → ADS (5 张应用层表)
+DWD 清洗 (MySQL 业务表) → DWS 聚合 (用户指标) → 画像产出 (RFM + 标签 + 聚类) → 写回 MySQL
 ```
 
-| 层级 | 表数 | 清洗逻辑 |
-|------|------|----------|
-| ODS | 7 | CSV 外部表，OpenCSVSerde，跳过表头 |
-| DWD | 6 | 去重、枚举校验、引用完整性、时间逻辑校验 |
-| DWS | 1 | 订单/行为/登录三域汇总，偏好分类加权评分 |
-| ADS | 5 | RFM 分层 + 4 类标签 + 分布统计 |
+| 阶段 | 清洗/计算逻辑 |
+|------|----------|
+| DWD 清洗 | 去重、枚举校验、引用完整性、时间逻辑校验 |
+| DWS 聚合 | 订单/行为/登录三域汇总，偏好分类加权评分 |
+| 画像产出 | RFM 分层 + 4 类标签 + K-Means 聚类 + 分布统计 |
 
 ### 5.3 Spark 计算作业
 
-| 脚本 | 行数 | 模式 | 输出 |
-|------|------|------|------|
-| `rfm_profile_job.py` | 143 | 集群 (Hive→ADS) | 5 张 Hive ADS 表 |
-| `rfm_sql_8seg.py` | 235 | 集群 (Hive→MySQL) | `ads_user_rfm` 表 |
-| `run_local_pipeline.py` | 419 | 本地 (CSV→DWD→DWS→RFM) | 4 张 MySQL 画像表 |
-| `sync_ads_to_mysql.py` | 78 | 集群 (ADS→MySQL) | 3 张 MySQL 画像表 |
+| 脚本 | 模式 | 输出 |
+|------|------|------|
+| `run_local_pipeline.py` | 本地 PySpark | 5 张 MySQL 画像结果表（清洗→聚合→RFM→标签→聚类） |
+| `run_cluster_only.py` | 本地 PySpark | 仅重算 user_cluster（支持相似簇合并） |
 
 ### 5.4 RFM 分层算法
 
@@ -191,8 +188,8 @@ ODS (7 张外部表) → DWD (6 张 Parquet 清洗表) → DWS (1 张用户指�
 
 | 粒度 | 分类数 | 来源 |
 |------|--------|------|
-| 5 分类 | HIGH_VALUE / POTENTIAL / GENERAL / AT_RISK / LOW_VALUE | `rfm_profile_job.py`, Hive ADS |
-| 8 分类 | 重要价值/发展/保持/挽留 + 一般价值/发展/保持 + 流失 | `rfm_sql_8seg.py`, `run_local_pipeline.py` |
+| 5 分类 | HIGH_VALUE / POTENTIAL / GENERAL / AT_RISK / LOW_VALUE | `run_local_pipeline.py` |
+| 8 分类 | 重要价值/发展/保持/挽留 + 一般价值/发展/保持 + 流失 | `run_local_pipeline.py` |
 
 综合得分：R×0.4 + F×0.3 + M×0.3（NTILE(5) 生成 1~5 分）
 
@@ -230,7 +227,7 @@ ODS (7 张外部表) → DWD (6 张 Parquet 清洗表) → DWS (1 张用户指�
 ### 7.1 架构层面
 
 1. **DDD 分层清晰**：interfaces → application → domain + infrastructure → common，职责边界明确
-2. **三种运行模式适配多场景**：从本地开发到生产集群无缝切换
+2. **运行模式适配多场景**：本地 PySpark 全链路 + Web 演示模式，无需集群即可演示与开发
 3. **安全设计到位**：JWT + BCrypt、环境变量管理密码、无状态会话、角色分级权限
 4. **MapStruct 编译期映射**：零运行时反射开销，类型安全
 
@@ -293,7 +290,7 @@ ODS (7 张外部表) → DWD (6 张 Parquet 清洗表) → DWS (1 张用户指�
 | `generate_data.py` 单进程生成百万级数据 | ⚠️ 中 | 建议支持多进程并行生成加速 |
 | Spark 脚本缺少异常重试机制 | ⚠️ 低 | 建议增加失败重试和断点续跑功能 |
 | 缺少数据质量监控 | ⚠️ 中 | 建议添加 Great Expectations 或自定义 DQ 检查 |
-| Hive/Spark 脚本中的 stat_date 处理不够鲁棒 | ⚠️ 低 | 建议增加默认值和参数范围校验 |
+| Spark 脚本中的 stat_date 处理不够鲁棒 | ⚠️ 低 | 建议增加默认值和参数范围校验 |
 
 ### 8.5 运维与部署
 
@@ -356,7 +353,7 @@ ODS (7 张外部表) → DWD (6 张 Parquet 清洗表) → DWS (1 张用户指�
 
 ## 十一、总结
 
-这是一个**架构设计规范、技术选型合理、文档齐全**的电商用户画像分析系统。v2 相比 v1 在分层架构上有了质的提升：
+这是一个**架构设计规范、技术选型合理、文档齐全**的电商用户画像分析系统。相比早期版本，分层架构上有了质的提升：
 
 - **后端**：严格遵循 DDD 分层，Spring Security + JWT 认证体系完整，MyBatis-Plus 使用规范，MapStruct 编译期映射高效
 - **前端**：基于成熟的 art-design-pro 框架，双权限模式灵活，组件库丰富，开发体验良好

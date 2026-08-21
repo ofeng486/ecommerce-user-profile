@@ -133,10 +133,7 @@ export default ({ mode }: { mode: string }) => {
       preprocessorOptions: {
         // sass variable and mixin
         scss: {
-          additionalData: `
-            @use "@styles/core/el-light.scss" as *; 
-            @use "@styles/core/mixin.scss" as *;
-          `
+          additionalData: ``
         }
       },
       postcss: {

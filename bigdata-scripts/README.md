@@ -12,7 +12,7 @@
 - `sales_order.csv`：订单；
 - `sales_order_item.csv`：订单明细。
 
-字段与 `docs/sql/mysql-schema.sql`、`docs/data-dictionary.md` 保持一致，可用于导入 MySQL 或 HDFS/Hive。
+字段与 `docs/sql/mysql-schema.sql`、`docs/data-dictionary.md` 保持一致，可直接导入 MySQL 供画像管线使用。
 
 ## 快速生成小规模数据
 

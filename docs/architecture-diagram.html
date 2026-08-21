@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>电商用户画像分析系统 v2 — 系统架构图</title>
+<title>电商用户画像分析系统 — 系统架构图</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -78,7 +78,7 @@ h1 span { color: #5D87FF; }
 <body>
 
 <div class="diagram">
-  <h1>🏪 <span>电商用户画像分析系统 v2</span> — 系统架构图</h1>
+  <h1>🏪 <span>电商用户画像分析系统</span> — 系统架构图</h1>
 
   <!-- 第一行：前端 + 后端 + 数据库 -->
   <div class="row">
@@ -135,8 +135,8 @@ h1 span { color: #5D87FF; }
       </div>
       <div class="pipe-arrow">→</div>
       <div class="pipe-step">
-        <strong>② 数仓分层</strong>
-        ODS → DWD → DWS → ADS<br>Hive 4 层架构<br>19 张表
+        <strong>② 数据清洗聚合</strong>
+        有效订单校验<br>PySpark 本地管线<br>偏好分类加权
       </div>
       <div class="pipe-arrow">→</div>
       <div class="pipe-step">
@@ -153,10 +153,9 @@ h1 span { color: #5D87FF; }
 
   <!-- 说明 -->
   <div class="note">
-    <strong>三种运行模式：</strong><br>
-    ① <strong>集群模式</strong>：HDFS → Hive ODS/DWD/DWS → PySpark ADS → sync_ads_to_mysql.py → MySQL<br>
-    ② <strong>本地 PySpark 模式</strong>：CSV → Spark（DWD → DWS → RFM）→ JDBC 直写 MySQL（无需集群）<br>
-    ③ <strong>Web 演示模式</strong>：管理员通过前端界面上传 CSV 或一键生成模拟数据，后端异步执行导入+计算
+    <strong>两种运行模式：</strong><br>
+    ① <strong>本地 PySpark 模式</strong>：MySQL 业务表 → Spark（DWD 清洗 → DWS 聚合 → RFM/标签/聚类）→ JDBC 覆盖写 MySQL<br>
+    ② <strong>Web 演示模式</strong>：管理员通过前端界面上传 CSV 或一键生成模拟数据，后端异步执行导入+计算
   </div>
 
 </div>

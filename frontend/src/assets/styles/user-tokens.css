@@ -1,0 +1,52 @@
+/* ───────────────────────────────────────────
+   User Portal Design Tokens
+   frontend-design 设计系统：数据分析美学
+   ─────────────────────────────────────────── */
+
+:root {
+  /* ─── 字体 ─── */
+  --font-display: 'Plus Jakarta Sans', 'Inter', 'PingFang SC', system-ui, sans-serif;
+  --font-body:    'Inter', 'PingFang SC', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+
+  /* ─── 主色 ─── */
+  --blue-50:  #eff6ff;
+  --blue-100: #dbeafe;
+  --blue-200: #bfdbfe;
+  --blue-500: #2563eb;
+  --blue-600: #1d4ed8;
+  --blue-700: #1e40af;
+
+  /* ─── 语义色 ─── */
+  --green:  #059669;
+  --amber:  #d97706;
+  --purple: #7c3aed;
+  --rose:   #dc2626;
+
+  /* ─── 中性色 ─── */
+  --gray-50:  #f8fafc;
+  --gray-100: #f1f5f9;
+  --gray-200: #e2e8f0;
+  --gray-300: #cbd5e1;
+  --gray-400: #94a3b8;
+  --gray-500: #64748b;
+  --gray-700: #334155;
+  --gray-900: #1e293b;
+
+  /* ─── 间距 ─── */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* ─── 圆角 ─── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* ─── 阴影 ─── */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.06);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.08);
+}

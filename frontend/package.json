@@ -1,6 +1,6 @@
 {
-  "name": "art-design-pro",
-  "version": "0.0.0",
+  "name": "ecommerce-user-profile-portal",
+  "version": "1.0.0",
   "type": "module",
   "engines": {
     "node": ">=20.19.0",
@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "vite --open",
     "build": "vue-tsc --noEmit && vite build",
+    "test": "vitest run",
     "serve": "vite preview",
     "lint": "eslint",
     "fix": "eslint --fix",
@@ -116,6 +117,7 @@
     "vite": "^7.1.5",
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-vue-devtools": "^7.7.6",
+    "vitest": "^4.1.10",
     "vue-demi": "^0.14.9",
     "vue-img-cutter": "^3.0.5",
     "vue-tsc": "~2.1.6"

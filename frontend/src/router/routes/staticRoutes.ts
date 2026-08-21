@@ -18,13 +18,7 @@ export const staticRoutes: AppRouteRecordRaw[] = [
     component: () => import('@views/landing/index.vue'),
     meta: { title: '电商用户画像分析系统', isHideTab: true }
   },
-  // 可视化大屏（公开）
-  {
-    path: '/public/dashboard',
-    name: 'PublicDashboard',
-    component: () => import('@views/public/dashboard/index.vue'),
-    meta: { title: '数据可视化大屏', isHideTab: true }
-  },
+  // 登录页
   {
     path: '/auth/login',
     name: 'Login',

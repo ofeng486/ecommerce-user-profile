@@ -5,8 +5,6 @@
   --main-color: var(--el-color-primary);
   --el-color-white: white !important;
   --el-color-black: white !important;
-  // 输入框边框颜色
-  // --el-border-color: #E4E4E7 !important; // DCDFE6
   // 按钮粗度
   --el-font-weight-primary: 400 !important;
 
@@ -14,12 +12,23 @@
 
   --el-component-size: var(--el-component-custom-height) !important;
 
-  // 边框、按钮圆角...
-  --el-border-radius-base: calc(var(--custom-radius) / 3 + 2px) !important;
+  // 全局圆角基准：整个系统统一柔和圆角（之前该变量从未定义 → calc 失效 → 组件回退直角，显得"方方正正"）
+  --custom-radius: 18px !important;
 
-  --el-border-radius-small: calc(var(--custom-radius) / 3 + 4px) !important;
-  --el-messagebox-border-radius: calc(var(--custom-radius) / 3 + 4px) !important;
-  --el-popover-border-radius: calc(var(--custom-radius) / 3 + 4px) !important;
+  // 边框、按钮圆角（更圆）
+  --el-border-radius-base: calc(var(--custom-radius) / 2 + 2px) !important;   // 11px
+  --el-border-radius-small: calc(var(--custom-radius) / 2 + 4px) !important;  // 13px
+  --el-messagebox-border-radius: calc(var(--custom-radius) / 1.2 + 2px) !important;
+  --el-popover-border-radius: calc(var(--custom-radius) / 1.2 + 2px) !important;
+
+  // 组件级圆角统一
+  --el-button-border-radius: calc(var(--custom-radius) / 2 + 2px) !important;
+  --el-input-border-radius: calc(var(--custom-radius) / 2 + 2px) !important;
+  --el-card-border-radius: calc(var(--custom-radius) / 1.2 + 2px) !important;
+  --el-dialog-border-radius: calc(var(--custom-radius) / 1.2 + 2px) !important;
+  --el-table-border-radius: calc(var(--custom-radius) / 1.2 + 2px) !important;
+  --el-tag-border-radius: calc(var(--custom-radius) / 2 + 2px) !important;
+  --el-switch-border-radius: var(--custom-radius) !important;
 
   .region .el-radio-button__original-radio:checked + .el-radio-button__inner {
     color: var(--theme-color);
@@ -34,7 +43,7 @@
 
 // 日期选择器
 .el-date-range-picker {
-  --el-datepicker-inrange-bg-color: var(--art-gray-200) !important;
+  --el-datepicker-inrange-bg-color: #f2f4f5 !important;
 }
 
 // el-card 背景色跟系统背景色保持一致
@@ -145,7 +154,7 @@ html.dark .el-card {
       left: -16px;
       width: calc(100% + 32px);
       height: 1px;
-      background-color: var(--art-gray-300);
+      background-color: #e6eaeb;
     }
 
     &::before {
@@ -183,13 +192,13 @@ html.dark .el-card {
     border-radius: 6px !important;
 
     &:hover:not(.is-disabled) {
-      color: var(--art-gray-900) !important;
-      background-color: var(--art-el-active-color) !important;
+      color: #323251 !important;
+      background-color: #f2f4f5 !important;
     }
 
     &:focus:not(.is-disabled) {
-      color: var(--art-gray-900) !important;
-      background-color: var(--art-gray-200) !important;
+      color: #323251 !important;
+      background-color: #f2f4f5 !important;
     }
   }
 }
@@ -331,8 +340,8 @@ html.dark .el-card {
   transition: all 0.3s;
 
   &:hover {
-    background-color: var(--art-hover-color) !important;
-    color: var(--art-gray-900) !important;
+    background-color: #edeff0 !important;
+    color: #323251 !important;
   }
 }
 
@@ -432,14 +441,14 @@ html.dark .el-card {
       border-radius: 6px !important;
 
       &.is-selected {
-        color: var(--art-gray-900) !important;
+        color: #323251 !important;
         font-weight: 400 !important;
-        background-color: var(--art-el-active-color) !important;
+        background-color: #f2f4f5 !important;
         margin-bottom: 4px !important;
       }
 
       &:hover {
-        background-color: var(--art-hover-color) !important;
+        background-color: #edeff0 !important;
       }
     }
 
@@ -461,7 +470,7 @@ html.dark .el-card {
         border-radius: 6px !important;
 
         &:hover {
-          background-color: var(--art-gray-200) !important;
+          background-color: #f2f4f5 !important;
         }
       }
     }
@@ -493,13 +502,13 @@ html.dark .el-card {
   padding: 1px 0;
 
   &:hover {
-    background-color: var(--art-hover-color) !important;
+    background-color: #edeff0 !important;
   }
 }
 
 .dark {
   .el-tree--highlight-current .el-tree-node.is-current > .el-tree-node__content {
-    background-color: var(--art-gray-300) !important;
+    background-color: #e6eaeb !important;
   }
 }
 
@@ -522,12 +531,12 @@ html.dark .el-card {
 
 // 表格增强
 .el-table {
-  --el-table-header-bg-color: var(--art-gray-100);
+  --el-table-header-bg-color: #f9fafb;
   
   th.el-table__cell {
     font-weight: 600;
-    color: var(--art-gray-700);
-    background-color: var(--art-gray-100);
+    color: #4d5875;
+    background-color: #f9fafb;
     
     .cell {
       font-size: 13px;
@@ -552,7 +561,7 @@ html.dark .el-card {
 .el-tag--success { --el-tag-bg-color: #e6faf5; --el-tag-text-color: #13DEB9; --el-tag-border-color: #b8efdc; }
 .el-tag--warning { --el-tag-bg-color: #fff8e6; --el-tag-text-color: #FFAE1F; --el-tag-border-color: #ffe0a3; }
 .el-tag--danger  { --el-tag-bg-color: #fff0f0; --el-tag-text-color: #FF4D4F; --el-tag-border-color: #ffc8c8; }
-.el-tag--info    { --el-tag-bg-color: var(--art-gray-100); --el-tag-text-color: var(--art-gray-500); --el-tag-border-color: var(--art-gray-300); }
+.el-tag--info    { --el-tag-bg-color: #f9fafb; --el-tag-text-color: #949eb7; --el-tag-border-color: #e6eaeb; }
 
 // 输入框 focus 增强
 .el-input__wrapper,
@@ -565,13 +574,6 @@ html.dark .el-card {
 }
 
 // 卡片 hover 品牌阴影（shadow-mode）
-[data-box-mode='shadow-mode'] {
-  .art-card:hover,
-  .art-card-sm:hover {
-    box-shadow: 0 4px 20px rgba(93, 135, 255, 0.10), 0 1px 3px rgba(0, 0, 0, 0.04) !important;
-  }
-}
-
 // 按钮增强
 .el-button--primary {
   --el-button-bg-color: #5D87FF;

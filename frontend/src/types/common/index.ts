@@ -24,7 +24,6 @@
  * - 减少重复类型定义
  *
  * @module types/common/index
- * @author Art Design Pro Team
  */
 
 // 导出响应类型

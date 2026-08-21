@@ -1,0 +1,104 @@
+/* ─────────────────────────────────────────────
+   Admin Portal Design Tokens
+   专业管理工具 · 品牌蓝 · Double-Bezel · 克制玻璃
+   依据 ui-ux-pro-max Analytics Dashboard 配色
+   ───────────────────────────────────────────── */
+
+:root {
+  /* ─── 字体 ─── */
+  --admin-font-display: 'Space Grotesk', 'Plus Jakarta Sans', 'PingFang SC', system-ui, sans-serif;
+  --admin-font-body:    'Plus Jakarta Sans', 'Inter', 'PingFang SC', system-ui, sans-serif;
+  --admin-font-mono:    'JetBrains Mono', 'Fira Code', monospace;
+
+  /* ─── 基础色 ─── */
+  --admin-bg-page:       #f4f6fa;
+  --admin-bg-card:       #ffffff;
+  --admin-bg-glass:      rgba(255, 255, 255, 0.82);
+  --admin-bg-sidebar:    #ffffff;
+
+  /* ─── 品牌蓝（Analytics Dashboard：Blue data + amber highlights） ─── */
+  --admin-blue-50:  #eff6ff;
+  --admin-blue-100: #dbeafe;
+  --admin-blue-200: #bfdbfe;
+  --admin-blue-400: #60a5fa;
+  --admin-blue-500: #3b82f6;
+  --admin-blue-600: #2563eb;
+  --admin-blue-700: #1d4ed8;
+  --admin-blue-800: #1e40af;
+
+  /* ─── 语义色 ─── */
+  --admin-green-500: #10b981;
+  --admin-amber:     #f59e0b;
+  --admin-red:       #ef4444;
+
+  /* ─── 渐变 ─── */
+  --admin-grad-page:  linear-gradient(180deg, #f4f6fa 0%, #eef2f8 100%);
+  --admin-grad-blue:  linear-gradient(135deg, #2563eb, #1e40af);
+  --admin-grad-glass: linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.6));
+
+  /* ─── 中性色 ─── */
+  --admin-gray-50:  #f8fafc;
+  --admin-gray-100: #f1f5f9;
+  --admin-gray-200: #e2e8f0;
+  --admin-gray-300: #cbd5e1;
+  --admin-gray-400: #94a3b8;
+  --admin-gray-500: #64748b;
+  --admin-gray-700: #334155;
+  --admin-gray-900: #0f172a;
+
+  --admin-text-primary:   #0f172a;
+  --admin-text-secondary: #475569;
+  --admin-text-tertiary:  #94a3b8;
+
+  /* ─── 圆角（企业工具风，稍锐利） ─── */
+  --admin-radius-sm: 8px;
+  --admin-radius-md: 10px;
+  --admin-radius-lg: 14px;
+  --admin-radius-xl: 18px;
+
+  /* ─── 玻璃拟态（克制：仅侧边栏/顶栏） ─── */
+  --admin-glass-bg:       var(--admin-bg-glass);
+  --admin-glass-border:   rgba(15, 23, 42, 0.06);
+  --admin-glass-shadow:   0 4px 24px rgba(15, 23, 42, 0.06), 0 1px 4px rgba(0, 0, 0, 0.03);
+  --admin-glass-blur:     blur(16px);
+  --admin-glass-ring:     0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+
+  /* ─── Double-Bezel 卡片 ─── */
+  --admin-bezel-pad:    6px;
+  --admin-bezel-radius: 20px;
+  --admin-card-radius:  14px;
+  --admin-bezel-bg:     linear-gradient(180deg, #ffffff, #eef2f7);
+  --admin-bezel-border: rgba(15, 23, 42, 0.06);
+
+  /* ─── 阴影（大扩散环境阴影） ─── */
+  --admin-shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.04);
+  --admin-shadow-md: 0 8px 28px rgba(15, 23, 42, 0.06);
+  --admin-shadow-lg: 0 16px 48px rgba(15, 23, 42, 0.09);
+
+  /* ─── 监控面板 ─── */
+  --admin-monitor-bg:     #ffffff;
+  --admin-monitor-border: #e2e8f0;
+  --admin-monitor-glow:   0 0 20px rgba(37, 99, 235, 0.06);
+}
+
+/* ══════════════════════════════════════════
+   Double-Bezel 通用卡片（admin 端）
+   ══════════════════════════════════════════ */
+.bezel {
+  position: relative;
+  padding: var(--admin-bezel-pad, 6px);
+  background: var(--admin-bezel-bg, linear-gradient(180deg, #ffffff, #eef2f7));
+  border: 1px solid var(--admin-bezel-border, rgba(15, 23, 42, 0.06));
+  border-radius: var(--admin-bezel-radius, 20px);
+  box-shadow: var(--admin-shadow-md, 0 8px 28px rgba(15, 23, 42, 0.06));
+  transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.bezel:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--admin-shadow-lg, 0 16px 48px rgba(15, 23, 42, 0.09));
+}
+.bezel .card {
+  background: var(--admin-bg-card, #ffffff);
+  border-radius: var(--admin-card-radius, 14px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.6);
+}

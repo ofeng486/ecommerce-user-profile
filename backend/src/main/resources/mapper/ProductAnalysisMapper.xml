@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.oufeng.ecommerceuserprofile.infrastructure.mapper.ProductAnalysisMapper">
+
+    <!-- 有效订单口径：与画像清洗一致（Paid/Shipped/Completed） -->
+    <sql id="validOrderJoin">
+        JOIN sales_order o ON o.id = oi.order_id AND o.order_status IN ('Paid', 'Shipped', 'Completed')
+    </sql>
+
+    <select id="queryProductOverview" resultType="java.util.HashMap">
+        SELECT COUNT(DISTINCT oi.product_id) AS productCount,
+               COALESCE(SUM(oi.quantity), 0) AS totalQuantity,
+               COALESCE(SUM(oi.item_amount), 0) AS totalAmount,
+               ROUND(COALESCE(SUM(oi.item_amount), 0) / NULLIF(SUM(oi.quantity), 0), 2) AS avgPrice,
+               MAX(o.paid_at) AS dataDate
+        FROM sales_order_item oi
+        <include refid="validOrderJoin"/>
+    </select>
+
+    <select id="queryTopSales" resultType="java.util.HashMap">
+        SELECT p.id AS productId, p.product_code AS productCode, p.product_name AS productName,
+               COALESCE(SUM(oi.quantity), 0) AS quantity,
+               COALESCE(SUM(oi.item_amount), 0) AS amount,
+               COUNT(DISTINCT oi.order_id) AS orderCount
+        FROM sales_order_item oi
+        <include refid="validOrderJoin"/>
+        JOIN product p ON p.id = oi.product_id
+        GROUP BY p.id, p.product_code, p.product_name
+        ORDER BY amount DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="queryCategoryShare" resultType="java.util.HashMap">
+        /* 品类名直接取 product_category（已数据治理：id=7 与 22 统一为'服装鞋靴'，无同义分裂） */
+        SELECT COALESCE(pc.category_name, '未分类') AS categoryName,
+               MIN(pc.id) AS categoryId,
+               COALESCE(SUM(oi.item_amount), 0) AS amount,
+               COALESCE(SUM(oi.quantity), 0) AS quantity
+        FROM sales_order_item oi
+        <include refid="validOrderJoin"/>
+        JOIN product p ON p.id = oi.product_id
+        LEFT JOIN product_category pc ON pc.id = p.category_id
+        GROUP BY categoryName
+        ORDER BY amount DESC
+    </select>
+
+    <select id="queryPriceBands" resultType="java.util.HashMap">
+        SELECT CASE
+                 WHEN p.unit_price &lt; 100 THEN '100 元以下'
+                 WHEN p.unit_price &lt; 500 THEN '100-500 元'
+                 WHEN p.unit_price &lt; 1000 THEN '500-1000 元'
+                 WHEN p.unit_price &lt; 5000 THEN '1000-5000 元'
+                 ELSE '5000 元以上'
+               END AS band,
+               COUNT(DISTINCT p.id) AS productCount,
+               COALESCE(SUM(oi.item_amount), 0) AS amount
+        FROM product p
+        LEFT JOIN sales_order_item oi ON oi.product_id = p.id
+        LEFT JOIN sales_order o ON o.id = oi.order_id AND o.order_status IN ('Paid', 'Shipped', 'Completed')
+        GROUP BY band
+        ORDER BY MIN(p.unit_price)
+    </select>
+
+    <select id="queryTotalAmount" resultType="java.util.HashMap">
+        SELECT COALESCE(SUM(oi.item_amount), 0) AS totalAmount
+        FROM sales_order_item oi
+        <include refid="validOrderJoin"/>
+    </select>
+
+</mapper>

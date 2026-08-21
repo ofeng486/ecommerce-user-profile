@@ -6,7 +6,7 @@
 - `F`（Frequency）：有效订单数量，越多得分越高；
 - `M`（Monetary）：有效消费金额，越高得分越高。
 
-任务使用五分位法（NTILE(5)）生成 1～5 分，R 取反向分（6 - ntile），无订单用户 R=1。综合得分权重：**R×0.4 + F×0.3 + M×0.3**，与集群 `rfm_profile_job.py` 和本地 `run_local_pipeline.py` 保持一致。
+任务使用五分位法（NTILE(5)）生成 1～5 分，R 取反向分（6 - ntile），无订单用户 R=1。综合得分权重：**R×0.4 + F×0.3 + M×0.3**，与本地 `run_local_pipeline.py` 保持一致。
 
 ## 用户分层（规则分类，非综合得分阈值）
 
@@ -21,15 +21,13 @@
 ## 提交任务
 
 ```bash
-spark-submit \
-  --master yarn \
-  bigdata-scripts/spark/rfm_profile_job.py \
+python bigdata-scripts/spark/run_local_pipeline.py \
   --data-version 20260711
 ```
 
-执行前必须完成 Hive `ODS / DWD / DWS / ADS` 表建设。任务结果写入：
+任务结果直接写入 MySQL 画像结果表：
 
-- `ecommerce_profile_ads.ads_user_value_segment`
-- `ecommerce_profile_ads.ads_tag_distribution`
-
-实际生产中应将 `overwrite` 调整为按 `data_version` 分区覆盖，避免删除历史批次。
+- `user_segment`（用户分层）
+- `user_profile_tag`（标签结果）
+- `user_profile_summary`（画像汇总）
+- `ads_user_rfm`（RFM 明细）

@@ -1,6 +1,6 @@
 @startuml 电商用户画像分析系统架构图
 ' ============================================
-' 电商用户画像分析系统 v2 — 系统架构图
+' 电商用户画像分析系统 — 系统架构图
 ' 适用于毕业设计答辩 PPT
 ' ============================================
 
@@ -20,7 +20,7 @@ skinparam rectangle {
   BorderColor<<storage>> #546E7A
 }
 
-title **电商用户画像分析系统 v2 — 系统架构图**
+title **电商用户画像分析系统 — 系统架构图**
 
 ' ── 用户层 ──
 rectangle "**浏览器**\nVue 3 + Element Plus + ECharts\nlocalhost:3006" <<frontend>> as Browser
@@ -43,9 +43,7 @@ database "**MySQL 8.0**\necommerce_user_profile\n(16 张表)" <<storage>> as MyS
 ' ── 大数据管线 ──
 rectangle "**Python 数据生成器**\ngenerate_data.py\n→ 7 个 CSV 文件" <<bigdata>> as Gen
 
-rectangle "**Hive 数仓 (集群模式)**\nODS → DWD → DWS → ADS\n(4 层, 19 张表)" <<bigdata>> as Hive
-
-rectangle "**PySpark 画像计算**\nRFM 打分 + 8 分类\n本地: run_local_pipeline.py\n集群: rfm_profile_job.py" <<bigdata>> as Spark
+rectangle "**PySpark 画像计算**\nRFM 打分 + 8 分类\nrun_local_pipeline.py" <<bigdata>> as Spark
 
 ' ── 关系 ──
 Browser --> Backend : REST API\n(JWT 认证)
@@ -53,12 +51,6 @@ Browser --> Backend : REST API\n(JWT 认证)
 Backend --> MySQL : MyBatis-Plus\n(读写)
 
 Gen -down-> MySQL : CSV 导入\n(JDBC batch)
-
-Gen -down-> Hive : 上传 HDFS
-
-Hive --> Spark : DWS 用户指标表
-
-Spark -up-> Hive : ADS 结果表
 
 Spark --> MySQL : JDBC 写入\n画像结果表
 

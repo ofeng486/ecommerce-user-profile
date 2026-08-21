@@ -9,7 +9,7 @@
         <relativePath/>
     </parent>
     <groupId>com.oufeng</groupId>
-    <artifactId>ecommerce-user-profile-v2-backend</artifactId>
+    <artifactId>ecommerce-user-profile-backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>ecommerce-user-profile-v2-backend</name>
     <description>电商用户画像分析系统 v2 后端</description>

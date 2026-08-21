@@ -1,34 +1,47 @@
 @import 'tailwindcss';
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ==================== Source Scanning ==================== */
+/* Tailwind v4 scanner 的 ** glob 在 Windows 上有 bug，*/
+/* 无法递归扫描子目录中的 .vue 文件。 */
+/* 解决方案：逐个声明每个含 .vue 的目录 */
+/* 此列表由 gen-sources 自动生成 */
+@source "../../../App.vue";
+@source "../../../components/core/layouts/*.vue";
+@source "../../../components/core/views/*.vue";
+@source "../../../components/ui/*.vue";
+@source "../../../views/admin/*.vue";
+@source "../../../views/admin/audience/*.vue";
+@source "../../../views/admin/data-generate/*.vue";
+@source "../../../views/admin/import/*.vue";
+@source "../../../views/auth/forget-password/*.vue";
+@source "../../../views/auth/login/*.vue";
+@source "../../../views/auth/register/*.vue";
+@source "../../../views/dashboard/console/*.vue";
+@source "../../../views/exception/403/*.vue";
+@source "../../../views/exception/404/*.vue";
+@source "../../../views/exception/500/*.vue";
+@source "../../../views/landing/*.vue";
+@source "../../../views/outside/*.vue";
+@source "../../../views/profile/detail/*.vue";
+@source "../../../views/profile/list/*.vue";
+@source "../../../views/public/dashboard/*.vue";
+@source "../../../views/system/user/*.vue";
+@source "../../../views/system/user-center/*.vue";
+@source "../../../views/task/list/*.vue";
+@source "../../../views/user/*.vue";
+@source "../../../views/user/profile/*.vue";
+
 /* ==================== Light Mode Variables ==================== */
 :root {
   /* Base Colors */
-  --art-color: #ffffff;
   --theme-color: var(--main-color);
 
   /* Theme Colors - OKLCH Format */
-  --art-primary: oklch(0.7 0.23 260);
-  --art-secondary: oklch(0.72 0.19 231.6);
-  --art-error: oklch(0.73 0.15 25.3);
-  --art-info: oklch(0.58 0.03 254.1);
-  --art-success: oklch(0.78 0.17 166.1);
-  --art-warning: oklch(0.78 0.14 75.5);
-  --art-danger: oklch(0.68 0.22 25.3);
 
   /* Gray Scale - Light Mode */
-  --art-gray-100: #f9fafb;
-  --art-gray-200: #f2f4f5;
-  --art-gray-300: #e6eaeb;
-  --art-gray-400: #dbdfe1;
-  --art-gray-500: #949eb7;
-  --art-gray-600: #7987a1;
-  --art-gray-700: #4d5875;
-  --art-gray-800: #383853;
-  --art-gray-900: #323251;
 
   /* Border Colors */
-  --art-card-border: rgba(0, 0, 0, 0.08);
 
   --default-border: #e2e8ee;
   --default-border-dashed: #dbdfe9;
@@ -38,13 +51,10 @@
   --default-box-color: #ffffff;
 
   /* Hover Color */
-  --art-hover-color: #edeff0;
 
   /* Active Color */
-  --art-active-color: #f2f4f5;
 
   /* Element Component Active Color */
-  --art-el-active-color: #f2f4f5;
 
   /* ==================== Font Families ==================== */
   --font-heading: 'Plus Jakarta Sans', 'Inter', 'PingFang SC', 'Microsoft YaHei', sans-serif;
@@ -64,21 +74,10 @@
 /* ==================== Dark Mode Variables ==================== */
 .dark {
   /* Base Colors */
-  --art-color: #000000;
 
   /* Gray Scale - Dark Mode */
-  --art-gray-100: #110f0f;
-  --art-gray-200: #17171c;
-  --art-gray-300: #393946;
-  --art-gray-400: #505062;
-  --art-gray-500: #73738c;
-  --art-gray-600: #8f8fa3;
-  --art-gray-700: #ababba;
-  --art-gray-800: #c7c7d1;
-  --art-gray-900: #e3e3e8;
 
   /* Border Colors */
-  --art-card-border: rgba(255, 255, 255, 0.08);
 
   --default-border: rgba(255, 255, 255, 0.1);
   --default-border-dashed: #363843;
@@ -88,13 +87,10 @@
   --default-box-color: #161618;
 
   /* Hover Color */
-  --art-hover-color: #252530;
 
   /* Active Color */
-  --art-active-color: #202226;
 
   /* Element Component Active Color */
-  --art-el-active-color: #2e2e38;
 }
 
 /* ==================== Tailwind Theme Configuration ==================== */
@@ -106,33 +102,14 @@
   --color-theme: var(--theme-color);
 
   /* Hover Color */
-  --color-hover-color: var(--art-hover-color);
 
   /* Active Color */
-  --color-active-color: var(--art-active-color);
 
   /* Active Color */
-  --color-el-active-color: var(--art-active-color);
 
   /* ElementPlus Theme Colors */
-  --color-primary: var(--art-primary);
-  --color-secondary: var(--art-secondary);
-  --color-error: var(--art-error);
-  --color-info: var(--art-info);
-  --color-success: var(--art-success);
-  --color-warning: var(--art-warning);
-  --color-danger: var(--art-danger);
 
   /* Gray Scale Colors (Auto-adapts to dark mode) */
-  --color-g-100: var(--art-gray-100);
-  --color-g-200: var(--art-gray-200);
-  --color-g-300: var(--art-gray-300);
-  --color-g-400: var(--art-gray-400);
-  --color-g-500: var(--art-gray-500);
-  --color-g-600: var(--art-gray-600);
-  --color-g-700: var(--art-gray-700);
-  --color-g-800: var(--art-gray-800);
-  --color-g-900: var(--art-gray-900);
 
   /* Font Families */
   --font-heading: var(--font-heading);
@@ -219,37 +196,6 @@
 /* ==================== Custom Component Classes ==================== */
 @layer components {
   /* Art Card Header Component */
-  .art-card-header {
-    @apply flex justify-between pr-6 pb-1;
-
-    .title {
-      h4 {
-        @apply text-xl font-semibold text-g-900;
-      }
-
-      p {
-        @apply mt-1.5 text-base text-g-600;
-
-        span {
-          @apply ml-2 font-medium;
-        }
-      }
-    }
-  }
-
-  /* Minimalist card override — 扁平无阴影卡片，protocol 对齐 */
-  .art-card {
-    border: 1px solid #eaeaea;
-    border-radius: 12px;
-    box-shadow: none;
-    padding: 24px;
-  }
-
-  .art-card:hover {
-    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-    transition: box-shadow 0.2s;
-  }
-
   /* 全局字体加大 — 管理后台内容区 */
   .layout-content {
     font-size: var(--fs-body);

@@ -1,4 +1,4 @@
--- 基于 Spark 的电商平台用户画像分析系统 MySQL 初始化脚本
+-- 基于 Spring Boot＋Spark 的电商平台用户画像分析系统 MySQL 初始化脚本
 -- 目标：使用通用现代 MySQL 语法，字符集 utf8mb4，存储引擎 InnoDB。
 
 CREATE DATABASE IF NOT EXISTS ecommerce_user_profile
@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS user_browse_behavior (
     id BIGINT UNSIGNED NOT NULL COMMENT '行为主键',
     user_id BIGINT UNSIGNED NOT NULL COMMENT '电商用户主键',
     product_id BIGINT UNSIGNED NOT NULL COMMENT '商品主键',
-    behavior_type ENUM('View', 'Click', 'Favorite', 'Cart') NOT NULL COMMENT '行为类型',
+    behavior_type ENUM('View', 'Click', 'Favorite', 'Cart', 'Purchase') NOT NULL COMMENT '行为类型',
     session_id VARCHAR(64) NOT NULL COMMENT '会话编码',
     device_type VARCHAR(20) NULL COMMENT '设备类型',
     channel VARCHAR(30) NULL COMMENT '访问渠道',
@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS user_login_behavior (
     duration_seconds INT UNSIGNED NULL COMMENT '在线时长（秒）',
     PRIMARY KEY (id),
     KEY idx_login_behavior_user_time (user_id, login_at),
+    KEY idx_login_behavior_time (login_at),
     CONSTRAINT chk_login_time CHECK (logout_at IS NULL OR logout_at >= login_at)
 ) ENGINE=InnoDB COMMENT='电商用户登录行为表';
 
@@ -310,6 +311,19 @@ CREATE TABLE IF NOT EXISTS audience_rule
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='人群包圈选规则表';
 
 -- ============================================================
+-- 11-3. 人群包指定用户明细表（画像列表批量选人创建）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS audience_package_users
+(
+    id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT '主键',
+    package_id BIGINT UNSIGNED NOT NULL COMMENT '关联 audience_package.id',
+    user_id    BIGINT UNSIGNED NOT NULL COMMENT '用户ID（关联 ecommerce_user.id）',
+    created_at TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '加入时间',
+    UNIQUE KEY uk_package_user (package_id, user_id),
+    KEY idx_package_id (package_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='人群包指定用户明细表';
+
+-- ============================================================
 -- 12. 画像对比任务表
 -- ============================================================
 CREATE TABLE IF NOT EXISTS comparison_task
@@ -362,3 +376,16 @@ CREATE TABLE IF NOT EXISTS sys_notification (
     INDEX idx_user_read (user_id, is_read),
     INDEX idx_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统通知';
+
+-- ═══════════════════════════════════════════════════════════
+-- AI 对话历史（F6 补充：AI 分析问答持久化，支持历史回看）
+-- ═══════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS ai_chat_history (
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    user_id     BIGINT UNSIGNED NOT NULL COMMENT '提问用户',
+    question    VARCHAR(500)    NOT NULL COMMENT '用户提问',
+    answer      TEXT            NOT NULL COMMENT 'AI 回答文本',
+    data_json   TEXT            NULL COMMENT 'SQL 查询结果（JSON 数组，供表格/图表回看）',
+    created_at  DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    INDEX idx_user_created (user_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI 对话历史';

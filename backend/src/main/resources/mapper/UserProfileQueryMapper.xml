@@ -1,28 +1,40 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.oufeng.ecommerceuserprofilev2.infrastructure.mapper.UserProfileQueryMapper">
+<mapper namespace="com.oufeng.ecommerceuserprofile.infrastructure.mapper.UserProfileQueryMapper">
 
-    <select id="queryOverview" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.ProfileOverviewResponse">
+    <select id="queryOverview" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.ProfileOverviewResponse">
         SELECT
             (SELECT COUNT(*) FROM ecommerce_user) AS totalUsers,
             (SELECT COUNT(*) FROM user_profile_summary) AS profiledUsers,
             (SELECT COUNT(*) FROM user_segment WHERE segment_code = 'HIGH_VALUE') AS highValueUsers,
-            (SELECT COALESCE(SUM(total_payment_amount), 0) FROM user_profile_summary) AS totalPaymentAmount
+            (SELECT COUNT(*) FROM user_segment WHERE segment_code = 'AT_RISK') AS atRiskUsers,
+            (SELECT COALESCE(SUM(total_payment_amount), 0) FROM user_profile_summary) AS totalPaymentAmount,
+            (SELECT MAX(data_version) FROM user_profile_summary) AS dataVersion,
+            (SELECT MAX(calculated_at) FROM user_profile_summary) AS calculatedAt
     </select>
 
-    <select id="querySegmentDistribution" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.SegmentDistributionResponse">
+    <select id="querySegmentDistribution" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.SegmentDistributionResponse">
         SELECT segment_code AS segmentCode, segment_name AS segmentName, COUNT(*) AS userCount
         FROM user_segment GROUP BY segment_code, segment_name ORDER BY userCount DESC
     </select>
 
-    <select id="queryTagDistribution" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.TagDistributionResponse">
-        SELECT t.tag_code AS tagCode, ut.tag_value AS tagValue, COUNT(DISTINCT ut.user_id) AS userCount,
-               COUNT(DISTINCT ut.user_id) / totals.total_count AS userRatio
+    <select id="queryTagDistribution" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.TagDistributionResponse">
+        SELECT t.tag_code AS tagCode,
+               /* 品类名直接取 product_category（已数据治理：id=7 与 22 统一为'服装鞋靴'，无同义分裂） */
+               CASE WHEN t.tag_code = 'FAVORITE_CATEGORY' AND pc.category_name IS NOT NULL
+                    THEN pc.category_name ELSE ut.tag_value END AS tagValue,
+               /* 下钻用原始值（tag_value 已统一，直接回原值） */
+               ut.tag_value AS filterTagValue,
+               COUNT(DISTINCT ut.user_id) AS userCount,
+               COUNT(DISTINCT ut.user_id) / totals.total_count AS userRatio,
+               ROUND(COALESCE(AVG(ps.total_payment_amount), 0), 2) AS avgAmount
         FROM user_profile_tag ut
         JOIN profile_tag_definition t ON t.id = ut.tag_id
         JOIN (SELECT tag_id, COUNT(DISTINCT user_id) AS total_count FROM user_profile_tag GROUP BY tag_id) totals ON totals.tag_id = ut.tag_id
+        LEFT JOIN product_category pc ON t.tag_code = 'FAVORITE_CATEGORY' AND pc.id = CAST(ut.tag_value AS UNSIGNED)
+        LEFT JOIN user_profile_summary ps ON ps.user_id = ut.user_id
         WHERE (#{tagCode} IS NULL OR t.tag_code = #{tagCode})
-        GROUP BY t.tag_code, ut.tag_value, totals.total_count ORDER BY t.tag_code, userCount DESC
+        GROUP BY t.tag_code, tagValue, filterTagValue, totals.total_count ORDER BY t.tag_code, userCount DESC
     </select>
 
     <sql id="profileFilter">
@@ -32,15 +44,37 @@
         <where>
             <if test="keyword != null and keyword != ''">u.user_code LIKE CONCAT('%', #{keyword}, '%')</if>
             <if test="segmentCode != null and segmentCode != ''">AND s.segment_code = #{segmentCode}</if>
+            <if test="province != null and province != ''">AND u.province = #{province}</if>
+            <if test="minAmount != null">AND COALESCE(p.total_payment_amount, 0) &gt;= #{minAmount}</if>
+            <if test="maxAmount != null">AND COALESCE(p.total_payment_amount, 0) &lt;= #{maxAmount}</if>
+            <!-- 标签下钻：tagValue 为标签原始值（FIND_IN_SET 兼容未来多值场景，匹配任一） -->
+            <if test="tagCode != null and tagCode != '' and tagValue != null and tagValue != ''">
+                AND EXISTS (SELECT 1 FROM user_profile_tag ut2
+                            JOIN profile_tag_definition td2 ON td2.id = ut2.tag_id
+                            WHERE ut2.user_id = u.id AND td2.tag_code = #{tagCode}
+                              AND FIND_IN_SET(ut2.tag_value, #{tagValue}))
+            </if>
         </where>
     </sql>
 
-    <select id="queryProfiles" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.UserProfileListItemResponse">
+    <select id="queryProfiles" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.UserProfileListItemResponse">
         SELECT u.id AS userId, u.user_code AS userCode, u.gender, u.age, u.province, u.city,
                COALESCE(p.total_order_count, 0) AS totalOrderCount, COALESCE(p.total_payment_amount, 0) AS totalPaymentAmount,
                s.segment_code AS segmentCode, s.segment_name AS segmentName, s.segment_score AS segmentScore
         <include refid="profileFilter"/>
-        ORDER BY COALESCE(p.total_payment_amount, 0) DESC, u.id ASC
+        ORDER BY
+        <choose>
+            <when test="orderColumn == 'p.total_payment_amount'">p.total_payment_amount</when>
+            <when test="orderColumn == 'p.total_order_count'">p.total_order_count</when>
+            <when test="orderColumn == 's.segment_score'">s.segment_score</when>
+            <when test="orderColumn == 'u.age'">u.age</when>
+            <otherwise>p.total_payment_amount</otherwise>
+        </choose>
+        <choose>
+            <when test="orderDir == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
+        , u.id ASC
         LIMIT #{limit} OFFSET #{offset}
     </select>
 
@@ -48,7 +82,45 @@
         SELECT COUNT(*) <include refid="profileFilter"/>
     </select>
 
-    <select id="queryUserProfile" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.UserProfileResponse">
+    <select id="queryProfileMetrics" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.ProfileMetricsResponse">
+        SELECT COUNT(p.user_id) AS totalUsers,
+               COALESCE(SUM(p.total_order_count), 0) AS totalOrders,
+               COALESCE(SUM(p.total_payment_amount), 0) AS totalAmount,
+               COALESCE(SUM(CASE WHEN s.segment_code = 'AT_RISK' THEN 1 ELSE 0 END), 0) AS atRiskUsers
+        FROM user_profile_summary p
+        LEFT JOIN user_segment s ON s.user_id = p.user_id
+    </select>
+
+    <select id="queryProvinceAmountRanking" resultType="java.util.LinkedHashMap">
+        <!-- TOP 5 省份 + 其余省份汇总（"其他省份"），保证全量覆盖 -->
+        SELECT province, amount, userCount FROM (
+            SELECT t.province AS province, t.amount AS amount, t.userCount AS userCount,
+                   ROW_NUMBER() OVER (ORDER BY t.amount DESC) AS rn
+            FROM (
+                SELECT u.province AS province, COALESCE(SUM(p.total_payment_amount), 0) AS amount,
+                       COUNT(p.user_id) AS userCount
+                FROM user_profile_summary p
+                JOIN ecommerce_user u ON u.id = p.user_id
+                WHERE u.province IS NOT NULL AND u.province != ''
+                GROUP BY u.province
+            ) t
+        ) ranked WHERE rn &lt;= 5
+        UNION ALL
+        SELECT '其他省份', SUM(amount), SUM(userCount) FROM (
+            SELECT t.province AS province, t.amount AS amount, t.userCount AS userCount,
+                   ROW_NUMBER() OVER (ORDER BY t.amount DESC) AS rn
+            FROM (
+                SELECT u.province AS province, COALESCE(SUM(p.total_payment_amount), 0) AS amount,
+                       COUNT(p.user_id) AS userCount
+                FROM user_profile_summary p
+                JOIN ecommerce_user u ON u.id = p.user_id
+                WHERE u.province IS NOT NULL AND u.province != ''
+                GROUP BY u.province
+            ) t
+        ) r WHERE r.rn &gt; 5
+    </select>
+
+    <select id="queryUserProfile" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.UserProfileResponse">
         SELECT u.id AS userId, u.user_code AS userCode, u.gender, u.age, u.province, u.city,
                COALESCE(p.total_order_count, 0) AS totalOrderCount, COALESCE(p.total_payment_amount, 0) AS totalPaymentAmount,
                COALESCE(p.average_order_amount, 0) AS averageOrderAmount, COALESCE(p.browse_count_30d, 0) AS browseCount30d,
@@ -59,11 +131,23 @@
         LEFT JOIN user_segment s ON s.user_id = u.id WHERE u.id = #{userId}
     </select>
 
+    <select id="queryUserTags" resultType="java.util.HashMap">
+        SELECT td.tag_code AS tagCode, td.tag_name AS tagName,
+               CASE WHEN td.tag_code = 'FAVORITE_CATEGORY' AND pc.category_name IS NOT NULL
+                    THEN pc.category_name ELSE ut.tag_value END AS tagValue
+        FROM user_profile_tag ut
+        JOIN profile_tag_definition td ON td.id = ut.tag_id
+        LEFT JOIN product_category pc ON td.tag_code = 'FAVORITE_CATEGORY' AND pc.id = CAST(ut.tag_value AS UNSIGNED)
+        WHERE ut.user_id = #{userId}
+        ORDER BY td.id
+    </select>
+
     <!-- ═══ 人群圈选 ═══ -->
     <sql id="audienceBase">
         FROM ecommerce_user u
         LEFT JOIN user_profile_summary ps ON ps.user_id = u.id
         LEFT JOIN user_segment sg ON sg.user_id = u.id
+        LEFT JOIN ads_user_rfm rfm ON rfm.user_id = u.id
     </sql>
 
     <sql id="audienceColumns">
@@ -77,73 +161,96 @@
             <foreach collection="conditions" item="c" separator="">
                 <choose>
                     <when test="c.field == 'gender'">
-                        <if test="c.operator == 'eq'">${logic} u.gender = #{c.value}</if>
-                        <if test="c.operator == 'neq'">${logic} u.gender != #{c.value}</if>
-                        <if test="c.operator == 'in'">${logic} u.gender IN <foreach collection="c.valueList" item="v" open="(" separator="," close=")">#{v}</foreach></if>
+                        <if test="c.operator == 'eq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.gender = #{c.value}</if>
+                        <if test="c.operator == 'neq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.gender != #{c.value}</if>
+                        <if test="c.operator == 'in'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.gender IN <foreach collection="c.valueList" item="v" open="(" separator="," close=")">#{v}</foreach></if>
                     </when>
                     <when test="c.field == 'age'">
-                        <if test="c.operator == 'eq'">${logic} u.age = #{c.value}</if>
-                        <if test="c.operator == 'gt'">${logic} u.age &gt; #{c.value}</if>
-                        <if test="c.operator == 'gte'">${logic} u.age &gt;= #{c.value}</if>
-                        <if test="c.operator == 'lt'">${logic} u.age &lt; #{c.value}</if>
-                        <if test="c.operator == 'lte'">${logic} u.age &lt;= #{c.value}</if>
-                        <if test="c.operator == 'between'">${logic} u.age BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                        <if test="c.operator == 'eq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.age = #{c.value}</if>
+                        <if test="c.operator == 'gt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.age &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.age &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.age &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.age &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.age BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
                     </when>
                     <when test="c.field == 'province'">
-                        <if test="c.operator == 'eq'">${logic} u.province = #{c.value}</if>
-                        <if test="c.operator == 'neq'">${logic} u.province != #{c.value}</if>
-                        <if test="c.operator == 'contains'">${logic} u.province LIKE CONCAT('%', #{c.value}, '%')</if>
-                        <if test="c.operator == 'in'">${logic} u.province IN <foreach collection="c.valueList" item="v" open="(" separator="," close=")">#{v}</foreach></if>
+                        <!-- 兼容"广东"/"广东省"等带后缀差异：用户输入简写时自动补"省"或"市"匹配 -->
+                        <if test="c.operator == 'eq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> (u.province = #{c.value} OR u.province = CONCAT(#{c.value}, '省') OR u.province = CONCAT(#{c.value}, '市'))</if>
+                        <if test="c.operator == 'neq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.province NOT IN (#{c.value}, CONCAT(#{c.value}, '省'), CONCAT(#{c.value}, '市'))</if>
+                        <if test="c.operator == 'contains'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.province LIKE CONCAT('%', #{c.value}, '%')</if>
+                        <if test="c.operator == 'in'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.province IN <foreach collection="c.valueList" item="v" open="(" separator="," close=")">#{v}</foreach></if>
                     </when>
                     <when test="c.field == 'city'">
-                        <if test="c.operator == 'eq'">${logic} u.city = #{c.value}</if>
-                        <if test="c.operator == 'contains'">${logic} u.city LIKE CONCAT('%', #{c.value}, '%')</if>
+                        <!-- city 同理：兼容"广州"/"广州市"等带"市"后缀差异 -->
+                        <if test="c.operator == 'eq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> (u.city = #{c.value} OR u.city = CONCAT(#{c.value}, '市'))</if>
+                        <if test="c.operator == 'contains'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> u.city LIKE CONCAT('%', #{c.value}, '%')</if>
                     </when>
                     <when test="c.field == 'total_payment_amount'">
-                        <if test="c.operator == 'gt'">${logic} COALESCE(ps.total_payment_amount, 0) &gt; #{c.value}</if>
-                        <if test="c.operator == 'gte'">${logic} COALESCE(ps.total_payment_amount, 0) &gt;= #{c.value}</if>
-                        <if test="c.operator == 'lt'">${logic} COALESCE(ps.total_payment_amount, 0) &lt; #{c.value}</if>
-                        <if test="c.operator == 'lte'">${logic} COALESCE(ps.total_payment_amount, 0) &lt;= #{c.value}</if>
-                        <if test="c.operator == 'between'">${logic} COALESCE(ps.total_payment_amount, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                        <if test="c.operator == 'gt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_payment_amount, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_payment_amount, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_payment_amount, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_payment_amount, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_payment_amount, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
                     </when>
                     <when test="c.field == 'total_order_count'">
-                        <if test="c.operator == 'gt'">${logic} COALESCE(ps.total_order_count, 0) &gt; #{c.value}</if>
-                        <if test="c.operator == 'gte'">${logic} COALESCE(ps.total_order_count, 0) &gt;= #{c.value}</if>
-                        <if test="c.operator == 'lt'">${logic} COALESCE(ps.total_order_count, 0) &lt; #{c.value}</if>
-                        <if test="c.operator == 'lte'">${logic} COALESCE(ps.total_order_count, 0) &lt;= #{c.value}</if>
-                        <if test="c.operator == 'between'">${logic} COALESCE(ps.total_order_count, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                        <if test="c.operator == 'gt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_order_count, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_order_count, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_order_count, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_order_count, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.total_order_count, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                    </when>
+                    <when test="c.field == 'average_order_amount'">
+                        <!-- 平均客单价：来自画像表 average_order_amount -->
+                        <if test="c.operator == 'gt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.average_order_amount, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.average_order_amount, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.average_order_amount, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.average_order_amount, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.average_order_amount, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                    </when>
+                    <when test="c.field == 'recency_days'">
+                        <!-- 距最近购买天数：来自 ads_user_rfm（LEFT JOIN 下从未购买用户为 NULL，不匹配条件） -->
+                        <if test="c.operator == 'gt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> rfm.recency_days &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> rfm.recency_days &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> rfm.recency_days &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> rfm.recency_days &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> rfm.recency_days BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                    </when>
+                    <when test="c.field == 'favorite_category'">
+                        <!-- 偏好品类：直选品类（按 FAVORITE_CATEGORY 标签精确匹配，value=品类原始 id） -->
+                        <if test="c.operator == 'eq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> EXISTS (SELECT 1 FROM user_profile_tag ut JOIN profile_tag_definition td ON td.id = ut.tag_id WHERE ut.user_id = u.id AND td.tag_code = 'FAVORITE_CATEGORY' AND ut.tag_value = #{c.value})</if>
                     </when>
                     <when test="c.field == 'browse_count_30d'">
-                        <if test="c.operator == 'gt'">${logic} COALESCE(ps.browse_count_30d, 0) &gt; #{c.value}</if>
-                        <if test="c.operator == 'gte'">${logic} COALESCE(ps.browse_count_30d, 0) &gt;= #{c.value}</if>
-                        <if test="c.operator == 'lt'">${logic} COALESCE(ps.browse_count_30d, 0) &lt; #{c.value}</if>
-                        <if test="c.operator == 'lte'">${logic} COALESCE(ps.browse_count_30d, 0) &lt;= #{c.value}</if>
-                        <if test="c.operator == 'between'">${logic} COALESCE(ps.browse_count_30d, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                        <if test="c.operator == 'gt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.browse_count_30d, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.browse_count_30d, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.browse_count_30d, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.browse_count_30d, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.browse_count_30d, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
                     </when>
                     <when test="c.field == 'login_count_30d'">
-                        <if test="c.operator == 'gt'">${logic} COALESCE(ps.login_count_30d, 0) &gt; #{c.value}</if>
-                        <if test="c.operator == 'gte'">${logic} COALESCE(ps.login_count_30d, 0) &gt;= #{c.value}</if>
-                        <if test="c.operator == 'lt'">${logic} COALESCE(ps.login_count_30d, 0) &lt; #{c.value}</if>
-                        <if test="c.operator == 'lte'">${logic} COALESCE(ps.login_count_30d, 0) &lt;= #{c.value}</if>
-                        <if test="c.operator == 'between'">${logic} COALESCE(ps.login_count_30d, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
+                        <if test="c.operator == 'gt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.login_count_30d, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.login_count_30d, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.login_count_30d, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.login_count_30d, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'between'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(ps.login_count_30d, 0) BETWEEN #{c.valueFrom} AND #{c.valueTo}</if>
                     </when>
                     <when test="c.field == 'segment_code'">
-                        <if test="c.operator == 'eq'">${logic} sg.segment_code = #{c.value}</if>
-                        <if test="c.operator == 'neq'">${logic} (sg.segment_code != #{c.value} OR sg.segment_code IS NULL)</if>
-                        <if test="c.operator == 'in'">${logic} sg.segment_code IN <foreach collection="c.valueList" item="v" open="(" separator="," close=")">#{v}</foreach></if>
+                        <if test="c.operator == 'eq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> sg.segment_code = #{c.value}</if>
+                        <if test="c.operator == 'neq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> (sg.segment_code != #{c.value} OR sg.segment_code IS NULL)</if>
+                        <if test="c.operator == 'in'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> sg.segment_code IN <foreach collection="c.valueList" item="v" open="(" separator="," close=")">#{v}</foreach></if>
                     </when>
                     <when test="c.field == 'segment_score'">
-                        <if test="c.operator == 'gt'">${logic} COALESCE(sg.segment_score, 0) &gt; #{c.value}</if>
-                        <if test="c.operator == 'gte'">${logic} COALESCE(sg.segment_score, 0) &gt;= #{c.value}</if>
-                        <if test="c.operator == 'lt'">${logic} COALESCE(sg.segment_score, 0) &lt; #{c.value}</if>
-                        <if test="c.operator == 'lte'">${logic} COALESCE(sg.segment_score, 0) &lt;= #{c.value}</if>
+                        <if test="c.operator == 'gt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(sg.segment_score, 0) &gt; #{c.value}</if>
+                        <if test="c.operator == 'gte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(sg.segment_score, 0) &gt;= #{c.value}</if>
+                        <if test="c.operator == 'lt'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(sg.segment_score, 0) &lt; #{c.value}</if>
+                        <if test="c.operator == 'lte'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> COALESCE(sg.segment_score, 0) &lt;= #{c.value}</if>
                     </when>
                     <when test="c.field == 'tag_value'">
-                        <if test="c.operator == 'eq' or c.operator == 'contains'">${logic} EXISTS (SELECT 1 FROM user_profile_tag ut WHERE ut.user_id = u.id AND ut.tag_value = #{c.value})</if>
-                        <if test="c.operator == 'not_contains' or c.operator == 'neq'">${logic} NOT EXISTS (SELECT 1 FROM user_profile_tag ut WHERE ut.user_id = u.id AND ut.tag_value = #{c.value})</if>
+                        <!-- 按标签类型(tag_code)+取值(tag_value)精确匹配，避免"高活跃/高消费"同为 High 时误圈 -->
+                        <if test="c.operator == 'eq' or c.operator == 'contains'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> EXISTS (SELECT 1 FROM user_profile_tag ut JOIN profile_tag_definition td ON td.id = ut.tag_id WHERE ut.user_id = u.id AND td.tag_code = #{c.tagCode} AND ut.tag_value = #{c.value})</if>
+                        <if test="c.operator == 'not_contains' or c.operator == 'neq'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> NOT EXISTS (SELECT 1 FROM user_profile_tag ut JOIN profile_tag_definition td ON td.id = ut.tag_id WHERE ut.user_id = u.id AND td.tag_code = #{c.tagCode} AND ut.tag_value = #{c.value})</if>
                     </when>
                     <when test="c.field == 'tag_code'">
-                        <if test="c.operator == 'eq' or c.operator == 'contains'">${logic} EXISTS (SELECT 1 FROM user_profile_tag ut JOIN profile_tag_definition td ON td.id = ut.tag_id WHERE ut.user_id = u.id AND td.tag_code = #{c.value})</if>
+                        <if test="c.operator == 'eq' or c.operator == 'contains'"><if test="c.logicOp == 'OR'">OR </if><if test="c.logicOp != 'OR'">AND </if> EXISTS (SELECT 1 FROM user_profile_tag ut JOIN profile_tag_definition td ON td.id = ut.tag_id WHERE ut.user_id = u.id AND td.tag_code = #{c.value})</if>
                     </when>
                 </choose>
             </foreach>
@@ -154,16 +261,22 @@
         SELECT COUNT(*) FROM ecommerce_user
     </select>
 
-    <select id="queryAllProfilesPaged" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.UserProfileListItemResponse">
+    <select id="queryAllProfilesPaged" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.UserProfileListItemResponse">
         SELECT <include refid="audienceColumns"/> <include refid="audienceBase"/>
         ORDER BY COALESCE(ps.total_payment_amount, 0) DESC, u.id ASC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="queryUsersByIds" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.UserProfileListItemResponse">
+        SELECT <include refid="audienceColumns"/> <include refid="audienceBase"/>
+        WHERE u.id IN <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY COALESCE(ps.total_payment_amount, 0) DESC
     </select>
 
     <select id="countAudience" resultType="long">
         SELECT COUNT(*) <include refid="audienceBase"/> <include refid="audienceWhere"/>
     </select>
 
-    <select id="queryAudience" resultType="com.oufeng.ecommerceuserprofilev2.domain.dto.profile.UserProfileListItemResponse">
+    <select id="queryAudience" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.UserProfileListItemResponse">
         SELECT <include refid="audienceColumns"/> <include refid="audienceBase"/> <include refid="audienceWhere"/>
         ORDER BY COALESCE(ps.total_payment_amount, 0) DESC, u.id ASC LIMIT #{limit} OFFSET #{offset}
     </select>
@@ -201,8 +314,10 @@
 
     <select id="compareTags" resultType="java.util.HashMap">
         SELECT ut.tag_value AS label, COUNT(DISTINCT ut.user_id) AS cnt FROM user_profile_tag ut
-        JOIN profile_tag_definition td ON td.id = ut.tag_id AND td.tag_code = 'FAVORITE_CATEGORY'
+        JOIN profile_tag_definition td ON td.id = ut.tag_id AND td.tag_code = #{tagCode}
         WHERE ut.user_id IN <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+        /* 过滤画像任务兜底标签（脏数据，防止英文 Unknown/空白/null 出现在对比结果里） */
+        AND ut.tag_value IS NOT NULL AND ut.tag_value != '' AND ut.tag_value NOT IN ('Unknown', 'null', 'NULL')
         GROUP BY ut.tag_value ORDER BY cnt DESC LIMIT 10
     </select>
 
@@ -211,6 +326,23 @@
         JOIN profile_tag_definition td ON td.id = ut.tag_id AND td.tag_code = 'CONSUMPTION_LEVEL'
         WHERE ut.user_id IN <foreach collection="userIds" item="id" open="(" separator="," close=")">#{id}</foreach>
         GROUP BY ut.tag_value ORDER BY cnt DESC
+    </select>
+
+    <select id="queryCategoryNames" resultType="java.util.HashMap">
+        SELECT id, category_name AS categoryName FROM product_category
+    </select>
+
+    <!-- 标签交叉矩阵：活跃档 × 消费档 的用户数（同一用户两次 JOIN user_profile_tag） -->
+    <select id="queryTagCross" resultType="com.oufeng.ecommerceuserprofile.domain.dto.profile.TagCrossResponse">
+        SELECT a.tag_value AS activeLevel,
+               c.tag_value AS consumeLevel,
+               COUNT(DISTINCT a.user_id) AS userCount
+        FROM user_profile_tag a
+        JOIN user_profile_tag c ON c.user_id = a.user_id
+        JOIN profile_tag_definition ta ON ta.id = a.tag_id AND ta.tag_code = 'ACTIVE_LEVEL'
+        JOIN profile_tag_definition tc ON tc.id = c.tag_id AND tc.tag_code = 'CONSUMPTION_LEVEL'
+        GROUP BY a.tag_value, c.tag_value
+        ORDER BY a.tag_value, c.tag_value
     </select>
 
 </mapper>

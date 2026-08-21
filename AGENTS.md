@@ -1,6 +1,6 @@
-# Ecommerce User Profile v2
+# Ecommerce User Profile
 
-基于 Spring Boot + MyBatis-Plus + Spark 的电商平台用户画像分析系统 v2，对 v1 架构进行分层重构。
+基于 Spring Boot + MyBatis-Plus + Spark 的电商平台用户画像分析系统。
 
 ## 项目简介
 
@@ -10,22 +10,22 @@
 
 ## Project
 
-- 后端目录：`v2/backend/`
+- 后端目录：`backend/`
 - Java 版本：17；Spring Boot：3.3.7；构建工具：Maven
 - 持久层：MyBatis-Plus 3.5+，Mapper XML 存放于 `resources/mapper/`
-- 前端目录：`v2/frontend/`（art-design-pro v3.0.2 — Vue 3 + TypeScript + Element Plus + Tailwind CSS）
-- 大数据脚本目录：`v2/bigdata-scripts/`（Python 数据生成、Spark 画像计算、Hive 数仓）
-- 文档目录：`v2/docs/`
+- 前端目录：`frontend/`（Vue 3 + TypeScript + Element Plus + Tailwind CSS，已完全剥离 art-design-pro 模板）
+- 大数据脚本目录：`bigdata-scripts/`（Python 数据生成、PySpark 画像计算、聚类分析）
+- 文档目录：`docs/`
 
 ## Commands
 
-在 `v2/backend/` 下执行：
+在 `backend/` 下执行：
 
 - 构建：`./mvnw clean package`
 - 测试：`./mvnw test`
 - 启动：`./mvnw spring-boot:run`
 
-在 `v2/frontend/` 下执行：
+在 `frontend/` 下执行：
 
 - 安装依赖：`pnpm install`
 - 启动开发：`pnpm dev`
@@ -43,7 +43,7 @@
 
 前端架构：
 
-- 基于 art-design-pro v3.0.2，使用 ArtTable、ArtForm、ArtSearchBar 等内置组件
+- 自定义组件体系（`components/ui/` 下的 SvgIcon、AuthLayout 等），无模板框架依赖
 - 路由守卫 + JWT 认证
 - ECharts 可视化图表（仪表盘、分层分布、标签分析）
 
@@ -60,6 +60,6 @@
 
 ## Notes
 
-- v1 源码见 `../`（项目根目录），v2 保持 API 接口契约不变。
+- v1 源码见 `../v1_archive/`（已归档），当前保持 API 接口契约不变。
 - 数据库：MySQL，16 张表，初始化脚本 `docs/sql/mysql-schema.sql`。
-- 三种运行模式：集群模式（HDFS → Hive → Spark）、本地 PySpark 模式、演示模式（DemoDataImporter）。
+- 运行模式：本地 PySpark 模式（数据生成 → 画像计算 → 聚类分析全链路），支持 CSV/天池数据导入。
