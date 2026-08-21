@@ -444,7 +444,7 @@
           <span class="footer-name">UserProfile</span>
         </div>
         <p class="footer-copy"
-          >© 2026 UserProfile. Ecommerce User Profile Analytics. All rights reserved.</p
+          >© 基于Spring Boot+Spark的电商平台用户画像分析系统的设计与实现-欧峰</p
         >
       </div>
     </footer>
