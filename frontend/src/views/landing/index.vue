@@ -461,7 +461,7 @@
   const features = [
     {
       title: 'Spark 离线计算',
-      desc: '基于 PySpark 分布式计算引擎，支持本地与集群双模式，百级到十万级用户数据分钟级完成画像计算。',
+      desc: '基于 PySpark 本地计算引擎，百级到十万级用户数据分钟级完成画像计算。',
       bg: '#EFF6FF',
       color: '#2563EB',
       icon: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>'
@@ -507,7 +507,6 @@
     const t = [
       'Apache Spark',
       'PySpark',
-      'Hive 数仓',
       'DeepSeek',
       'Spring Boot',
       'MyBatis-Plus',
@@ -531,7 +530,7 @@
   // ═══ 数字滚动计数 ═══
   const statsEl = ref<HTMLElement>()
   const statsData = ref([
-    { target: 19, suffix: '', label: '数据表', current: 0, inView: false },
+    { target: 22, suffix: '', label: '数据表', current: 0, inView: false },
     { target: 35, suffix: '+', label: 'API 接口', current: 0, inView: false },
     { target: 5, suffix: '', label: '用户分层', current: 0, inView: false },
     { target: 100000, suffix: '+', label: '画像用户', current: 0, inView: false }
