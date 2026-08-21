@@ -531,7 +531,7 @@
   const statsEl = ref<HTMLElement>()
   const statsData = ref([
     { target: 22, suffix: '', label: '数据表', current: 0, inView: false },
-    { target: 35, suffix: '+', label: 'API 接口', current: 0, inView: false },
+    { target: 94, suffix: '+', label: 'API 接口', current: 0, inView: false },
     { target: 5, suffix: '', label: '用户分层', current: 0, inView: false },
     { target: 100000, suffix: '+', label: '画像用户', current: 0, inView: false }
   ])
